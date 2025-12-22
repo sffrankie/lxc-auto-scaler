@@ -1,70 +1,124 @@
 #!/usr/bin/env bash
 
+# LXC AutoScale Installation Script
 # Copyright (c) 2025 Murat
 # License: MIT
-# Source: https://github.com/fabriziosalmi/proxmox-lxc-autoscale
 
-source /dev/stdin <<< "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)"
+set -e
 
-# App info
-var_disk="8"
-var_cpu="2"
-var_ram="2048"
-var_os="debian"
-var_version="13"
-var_unprivileged="1"
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-# App name and tags
-APP="LXC-AutoScale"
-var_tags="autoscale;monitoring"
+# Variables
+CTID=""
+TEMPLATE="debian-13-standard_13.1-2_amd64.tar.zst"
+STORAGE_TEMPLATE="local"
+STORAGE_ROOT="local-lvm"
+HOSTNAME="lxc-autoscale"
+CORES="2"
+MEMORY="2048"
+SWAP="512"
+DISK="8"
+PASSWORD="autoscale$(date +%s)"
 
-# Main functions
-variables
-color
-catch_errors
+# Helper functions
+msg_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+msg_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
+msg_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-function update_script() {
-    header_info
-    check_container_storage
-    check_container_resources
-    
-    if [[ ! -d /opt/lxc-autoscale ]]; then
-        msg_error "LXC AutoScale is not installed"
-        exit
-    fi
-    
-    msg_info "Updating LXC AutoScale"
-    systemctl stop lxc_autoscale 2>/dev/null
-    cd /opt/lxc-autoscale
-    git pull
-    cp /opt/lxc-autoscale/lxc_autoscale/lxc_autoscale.py /usr/local/bin/lxc_autoscale.py
-    chmod +x /usr/local/bin/lxc_autoscale.py
-    systemctl start lxc_autoscale
-    msg_ok "LXC AutoScale updated"
-    exit
+# Check if root
+if [[ $EUID -ne 0 ]]; then
+   msg_error "This script must be run as root"
+   exit 1
+fi
+
+# Get next available CTID
+get_next_ctid() {
+    local id=100
+    while pct status $id &>/dev/null || qm status $id &>/dev/null; do
+        ((id++))
+    done
+    echo $id
 }
 
-start
-build_container
-description
+CTID=$(get_next_ctid)
+HOSTNAME="${HOSTNAME}-${CTID}"
 
-msg_ok "Completed!\n"
-msg_info "LXC AutoScale Installation"
+msg_info "Starting LXC AutoScale Installation"
+echo "Container ID: $CTID"
+echo "Hostname: $HOSTNAME"
+echo ""
 
-# System update
-msg_info "Updating system"
-$STD apt-get update
-$STD apt-get -y upgrade
+# Check template
+msg_info "Checking template"
+if ! pveam list $STORAGE_TEMPLATE | grep -q "$TEMPLATE"; then
+    msg_info "Template not found, updating list"
+    pveam update
+    
+    msg_info "Downloading template"
+    pveam download $STORAGE_TEMPLATE $TEMPLATE
+fi
+msg_ok "Template ready"
+
+# Get available storages
+msg_info "Available storages for container:"
+pvesm status | grep -E "^[a-z]" | awk '{print $1}' | grep -v "^local$"
+
+# Ask for storage
+read -p "Enter storage for container rootfs (default: local-lvm): " USER_STORAGE
+STORAGE_ROOT=${USER_STORAGE:-local-lvm}
+
+# Create container
+msg_info "Creating container"
+pct create $CTID ${STORAGE_TEMPLATE}:vztmpl/${TEMPLATE} \
+    --hostname $HOSTNAME \
+    --cores $CORES \
+    --memory $MEMORY \
+    --swap $SWAP \
+    --rootfs ${STORAGE_ROOT}:${DISK} \
+    --net0 name=eth0,bridge=vmbr0,ip=dhcp \
+    --features nesting=1 \
+    --unprivileged 1 \
+    --onboot 1 \
+    --password "$PASSWORD" \
+    --start 1
+
+msg_ok "Container created (ID: $CTID)"
+
+# Wait for container to start
+msg_info "Waiting for container to start"
+sleep 10
+
+# Get container IP
+msg_info "Getting container IP"
+for i in {1..30}; do
+    CONTAINER_IP=$(pct exec $CTID -- hostname -I 2>/dev/null | awk '{print $1}' || echo "")
+    if [[ -n "$CONTAINER_IP" ]]; then
+        msg_ok "Container IP: $CONTAINER_IP"
+        break
+    fi
+    sleep 2
+done
+
+if [[ -z "$CONTAINER_IP" ]]; then
+    msg_error "Could not get container IP"
+    exit 1
+fi
+
+# Update container
+msg_info "Updating container system"
+pct exec $CTID -- bash -c "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y"
 msg_ok "System updated"
 
 # Install dependencies
 msg_info "Installing dependencies"
-$STD apt-get install -y \
+pct exec $CTID -- bash -c "DEBIAN_FRONTEND=noninteractive apt-get install -y \
     curl \
-    sudo \
     git \
-    ca-certificates \
-    gnupg \
     python3 \
     python3-pip \
     python3-yaml \
@@ -72,44 +126,36 @@ $STD apt-get install -y \
     python3-paramiko \
     python3-cryptography \
     openssh-client \
-    nginx
+    nginx \
+    ca-certificates"
 msg_ok "Dependencies installed"
 
-# SSH key setup
-msg_info "Configuring SSH key"
-if [[ ! -f /root/.ssh/id_rsa ]]; then
-    mkdir -p /root/.ssh
-    ssh-keygen -t rsa -b 4096 -f /root/.ssh/id_rsa -N '' -q
-    msg_ok "SSH key created"
-else
-    msg_ok "SSH key exists"
-fi
+# Create SSH key
+msg_info "Creating SSH key"
+pct exec $CTID -- bash -c "mkdir -p /root/.ssh && ssh-keygen -t rsa -b 4096 -f /root/.ssh/id_rsa -N '' -q"
+msg_ok "SSH key created"
 
 # Clone repository
-msg_info "Downloading LXC AutoScale"
-cd /opt
-$STD git clone https://github.com/fabriziosalmi/proxmox-lxc-autoscale.git lxc-autoscale
-msg_ok "LXC AutoScale downloaded"
+msg_info "Cloning LXC AutoScale repository"
+pct exec $CTID -- bash -c "cd /opt && git clone https://github.com/fabriziosalmi/proxmox-lxc-autoscale.git lxc-autoscale"
+msg_ok "Repository cloned"
 
 # Create directories
 msg_info "Creating directories"
-mkdir -p /etc/lxc_autoscale
-mkdir -p /var/lib/lxc_autoscale/backups
-mkdir -p /var/log
+pct exec $CTID -- bash -c "mkdir -p /etc/lxc_autoscale /var/lib/lxc_autoscale/backups /var/log"
 msg_ok "Directories created"
 
 # Setup application
-msg_info "Configuring LXC AutoScale"
-cp /opt/lxc-autoscale/lxc_autoscale/lxc_autoscale.py /usr/local/bin/lxc_autoscale.py
-chmod +x /usr/local/bin/lxc_autoscale.py
-msg_ok "LXC AutoScale configured"
+msg_info "Setting up LXC AutoScale"
+pct exec $CTID -- bash -c "cp /opt/lxc-autoscale/lxc_autoscale/lxc_autoscale.py /usr/local/bin/lxc_autoscale.py && chmod +x /usr/local/bin/lxc_autoscale.py"
+msg_ok "Application setup complete"
 
 # Get Proxmox host IP
-msg_info "Configuration setup"
-read -p "Enter Proxmox Host IP Address: " HOST_IP
+HOST_IP=$(hostname -I | awk '{print $1}')
 
 # Create config
-cat <<EOF >/etc/lxc_autoscale/lxc_autoscale.yaml
+msg_info "Creating configuration file"
+pct exec $CTID -- bash -c "cat > /etc/lxc_autoscale/lxc_autoscale.yaml << 'EOF'
 DEFAULTS:
   log_file: /var/log/lxc_autoscale.log
   lock_file: /var/lock/lxc_autoscale.lock
@@ -143,12 +189,12 @@ TIER_DEFAULT:
   min_memory: 512
   max_memory: 4096
   lxc_containers: []
-EOF
-msg_ok "Configuration file created"
+EOF"
+msg_ok "Configuration created"
 
 # Create systemd service
 msg_info "Creating systemd service"
-cat <<EOF >/etc/systemd/system/lxc_autoscale.service
+pct exec $CTID -- bash -c "cat > /etc/systemd/system/lxc_autoscale.service << 'EOF'
 [Unit]
 Description=LXC AutoScale Service
 After=network.target
@@ -165,21 +211,16 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOF"
 
-systemctl daemon-reload
-systemctl enable -q --now lxc_autoscale.service
-msg_ok "Systemd service created and started"
+pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable lxc_autoscale.service && systemctl start lxc_autoscale.service"
+msg_ok "Service created and started"
 
 # Setup web interface
-msg_info "Installing web interface"
-mkdir -p /var/www/lxc-autoscale
+msg_info "Setting up web interface"
+pct exec $CTID -- bash -c "mkdir -p /var/www/lxc-autoscale"
 
-if [[ -d /opt/lxc-autoscale/lxc_autoscale/ui ]]; then
-    cp -r /opt/lxc-autoscale/lxc_autoscale/ui/* /var/www/lxc-autoscale/ 2>/dev/null || true
-fi
-
-cat <<'EOF' >/etc/nginx/sites-available/lxc-autoscale
+pct exec $CTID -- bash -c "cat > /etc/nginx/sites-available/lxc-autoscale << 'EOF'
 server {
     listen 8080;
     server_name _;
@@ -188,7 +229,7 @@ server {
     index index.html;
     
     location / {
-        try_files $uri $uri/ =404;
+        try_files \$uri \$uri/ =404;
     }
     
     location /api/logs {
@@ -201,17 +242,42 @@ server {
         default_type application/json;
     }
 }
-EOF
+EOF"
 
-ln -sf /etc/nginx/sites-available/lxc-autoscale /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default
-systemctl restart nginx
-msg_ok "Web interface installed"
+pct exec $CTID -- bash -c "ln -sf /etc/nginx/sites-available/lxc-autoscale /etc/nginx/sites-enabled/ && rm -f /etc/nginx/sites-enabled/default && systemctl restart nginx"
+msg_ok "Web interface configured"
 
-# Cleanup and finalize
-motd_ssh
-customize
+# Get SSH public key
+SSH_PUBLIC_KEY=$(pct exec $CTID -- cat /root/.ssh/id_rsa.pub)
 
-msg_ok "LXC AutoScale installed successfully\n"
-echo -e "${APP} should be reachable by going to the following URL."
-echo -e "${BL}http://$(hostname -I | awk '{print $1}'):8080${CL}\n"
+# Summary
+echo ""
+echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║          LXC AutoScale Installation Complete!            ║${NC}"
+echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "${BLUE}Container Information:${NC}"
+echo -e "  Container ID    : ${GREEN}$CTID${NC}"
+echo -e "  Hostname        : ${GREEN}$HOSTNAME${NC}"
+echo -e "  IP Address      : ${GREEN}$CONTAINER_IP${NC}"
+echo -e "  Root Password   : ${YELLOW}$PASSWORD${NC}"
+echo ""
+echo -e "${BLUE}Access:${NC}"
+echo -e "  Web Interface   : ${GREEN}http://${CONTAINER_IP}:8080${NC}"
+echo -e "  SSH             : ${GREEN}ssh root@${CONTAINER_IP}${NC}"
+echo -e "  Console         : ${GREEN}pct enter $CTID${NC}"
+echo ""
+echo -e "${BLUE}Configuration:${NC}"
+echo -e "  Config File     : ${GREEN}/etc/lxc_autoscale/lxc_autoscale.yaml${NC}"
+echo -e "  Log File        : ${GREEN}/var/log/lxc_autoscale.log${NC}"
+echo ""
+echo -e "${YELLOW}IMPORTANT - Add SSH Key to Proxmox Host:${NC}"
+echo -e "${GREEN}echo '$SSH_PUBLIC_KEY' >> /root/.ssh/authorized_keys${NC}"
+echo ""
+echo -e "${YELLOW}Next Steps:${NC}"
+echo "  1. Add SSH key to Proxmox host (command above)"
+echo "  2. Edit config: pct exec $CTID -- nano /etc/lxc_autoscale/lxc_autoscale.yaml"
+echo "  3. Add container IDs to TIER_DEFAULT -> lxc_containers: [100, 101, 102]"
+echo "  4. Restart service: pct exec $CTID -- systemctl restart lxc_autoscale"
+echo "  5. View logs: pct exec $CTID -- journalctl -u lxc_autoscale -f"
+echo ""
