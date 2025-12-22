@@ -2,7 +2,6 @@
 
 # Copyright (c) 2025 droltr
 # License: MIT
-# based on https://github.com/fabriziosalmi/proxmox-lxc-autoscale?tab=readme-ov-file
 # https://github.com/droltr/lxc-auto-scaler
 
 # ==============================================================================
@@ -35,7 +34,6 @@ source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxV
 source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/error_handler.func)
 
 # Load build functions (container creation, menus, whiptail)
-# source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)
 source <(curl -fsSL https://raw.githubusercontent.com/droltr/lxc-auto-scaler/main/misc/build.func)
 
 # ❌ NOTE: api.func is NOT loaded - no telemetry/statistics will be sent
@@ -49,6 +47,8 @@ catch_errors
 # ==============================================================================
 
 APP="LXC AutoScale"
+NSAPP="lxcautoscale"
+var_install="lxc-autoscale-install"
 var_tags="monitoring;automation"
 var_cpu="2"
 var_ram="2048"
