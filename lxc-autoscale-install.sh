@@ -320,6 +320,13 @@ HTMLEOF
     msg_ok "Fallback UI created"
 fi
 
+# Set proper permissions for web files
+msg_info "Setting file permissions"
+chown -R www-data:www-data /var/www/lxc-autoscale
+chmod -R 755 /var/www/lxc-autoscale
+find /var/www/lxc-autoscale -type f -exec chmod 644 {} \;
+msg_ok "Permissions set"
+
 # ==============================================================================
 # SECTION 11: CONFIGURE NGINX
 # ==============================================================================
