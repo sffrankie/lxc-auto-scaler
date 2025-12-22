@@ -1,5 +1,6 @@
 # LXC AutoScale - Automated Container Installation Script
 Based on https://github.com/fabriziosalmi/proxmox-lxc-autoscale?tab=readme-ov-file
+Based on https://github.com/community-scripts/ProxmoxVE/tree/main
 
 Professional installation script for LXC AutoScale on Proxmox VE, built using community-scripts framework.
 
