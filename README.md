@@ -114,54 +114,91 @@ systemctl restart lxc_autoscale
 
 ---
 
-## 🔧 Post-Installation
+## 🔧 Post-Installation (REQUIRED)
 
-### 1. Add SSH Key to Proxmox Host
+### ⚠️ IMPORTANT: These steps are MANDATORY for the system to work
 
-The installer displays an SSH key at the end. Run the provided command on your Proxmox host:
+The installation completes successfully, but AutoScale cannot function until you complete these steps:
+
+### 1. Add SSH Key to Proxmox Host (CRITICAL)
+
+The installer displays an SSH public key. This key MUST be added to your Proxmox host:
 
 ```bash
+# On Proxmox host (NOT in the container):
 echo 'ssh-rsa AAAA...' >> /root/.ssh/authorized_keys
 ```
 
-**Important:** Without this step, the AutoScale service cannot connect to Proxmox to scale containers.
+**Why:** The AutoScale service runs inside the LXC container but needs to execute `pct` commands on the Proxmox host via SSH.
 
-### 2. Configure Container List
+**Test the connection:**
+```bash
+# Inside the container:
+ssh root@PROXMOX_IP "pct list"
+```
 
-Edit the configuration file:
+If this works, SSH is configured correctly.
+
+### 2. Add Container IDs to Monitor (CRITICAL)
+
+Edit the configuration file **inside the container**:
 
 ```bash
+# Inside the container (pct enter CONTAINER_ID):
 nano /etc/lxc_autoscale/lxc_autoscale.yaml
 ```
 
-Add container IDs to monitor:
+Find the `TIER_DEFAULT` section and add your container IDs:
 
 ```yaml
 TIER_DEFAULT:
-  lxc_containers: [101, 102, 103]  # Your container IDs here
+  cpu_upper_threshold: 80
+  cpu_lower_threshold: 20
+  memory_upper_threshold: 70
+  memory_lower_threshold: 20
+  min_cores: 1
+  max_cores: 4
+  min_memory: 512
+  max_memory: 4096
+  lxc_containers: [101, 102, 103]  # ← ADD YOUR CONTAINER IDs HERE
 ```
 
-**Note:** The installer cannot automatically detect containers because the SSH key is not yet added to the Proxmox host during installation.
+**Get container IDs from Proxmox:**
+```bash
+# On Proxmox host:
+pct list
+```
+
+**Important:** Do NOT add the AutoScale container itself to the list!
 
 ### 3. Restart Services
 
+After adding container IDs:
+
 ```bash
+# Inside the container:
 systemctl restart lxc_autoscale
 systemctl restart lxc_autoscale_ui
 ```
 
-### 4. Verify Services
+### 4. Verify Everything Works
 
 ```bash
-# Check AutoScale service
+# Check service status
 systemctl status lxc_autoscale
-
-# Check Web UI service
 systemctl status lxc_autoscale_ui
 
-# Check if ports are listening
-ss -tlnp | grep -E '(5000|8080)'
+# Watch the logs (you should see container metrics)
+tail -f /var/log/lxc_autoscale.log
 ```
+
+**Expected log output:**
+```
+Container 101 - CPU usage: 25.3%, Memory usage: 45.2%
+Container 102 - CPU usage: 10.1%, Memory usage: 30.5%
+```
+
+If you see `pct: not found` errors, SSH key was not added correctly.
 
 ---
 
