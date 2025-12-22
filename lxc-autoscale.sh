@@ -1,194 +1,209 @@
 #!/usr/bin/env bash
 
-# LXC AutoScale Installation Script
-# Copyright (c) 2025 Murat
+# Copyright (c) 2025 droltr
 # License: MIT
+# https://github.com/droltr/lxc-auto-scaler
 
-set -e
+# ==============================================================================
+# LXC AUTOSCALE - PROXMOX CONTAINER AUTO SCALING
+# ==============================================================================
+#
+# This script creates an LXC container for LXC AutoScale system
+# Based on community-scripts framework
+# 
+# Features:
+#   - Automatic LXC container detection
+#   - Locale selection (EN/TR)
+#   - Original UI installation from GitHub
+#   - SSH key management
+#   - Automated configuration
+#
+# Usage:
+#   bash <(curl -s https://raw.githubusercontent.com/droltr/lxc-auto-scaler/main/lxc-autoscale.sh)
+#
+# ==============================================================================
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# ==============================================================================
+# SECTION 1: LOAD COMMUNITY-SCRIPTS FRAMEWORK
+# ==============================================================================
 
-# Variables
-CTID=""
-TEMPLATE="debian-13-standard_13.1-2_amd64.tar.zst"
-STORAGE_TEMPLATE="local"
-STORAGE_ROOT="local-lvm"
-HOSTNAME="lxc-autoscale"
-CORES="2"
-MEMORY="2048"
-SWAP="512"
-DISK="8"
-PASSWORD="autoscale$(date +%s)"
+# Load core functions (colors, messages, formatting)
+source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/core.func)
 
-# Helper functions
-msg_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-msg_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
-msg_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+# Load error handler (catch_errors, error management)
+source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/error_handler.func)
 
-# Check if root
-if [[ $EUID -ne 0 ]]; then
-   msg_error "This script must be run as root"
-   exit 1
-fi
+# Load build functions (container creation, menus, whiptail)
+source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)
 
-# Get next available CTID
-get_next_ctid() {
-    local id=100
-    while pct status $id &>/dev/null || qm status $id &>/dev/null; do
-        ((id++))
-    done
-    echo $id
+# ❌ NOTE: api.func is NOT loaded - no telemetry/statistics will be sent
+
+# Initialize framework
+load_functions
+catch_errors
+
+# ==============================================================================
+# SECTION 2: APPLICATION PARAMETERS
+# ==============================================================================
+
+APP="LXC AutoScale"
+var_tags="monitoring;automation"
+var_cpu="2"
+var_ram="2048"
+var_disk="8"
+var_os="debian"
+var_version="13"
+var_unprivileged="1"
+
+# ==============================================================================
+# SECTION 3: PRE-INSTALLATION - DETECT EXISTING LXC CONTAINERS
+# ==============================================================================
+
+detect_lxc_containers() {
+    msg_info "Detecting existing LXC containers on Proxmox host"
+    
+    # Get all LXC containers except the one being created
+    DETECTED_LXC=$(pct list 2>/dev/null | awk 'NR>1 {print $1}' | grep -v "^${CTID}$" | tr '\n' ',' | sed 's/,$//')
+    
+    if [[ -n "$DETECTED_LXC" ]]; then
+        msg_ok "Found containers: $DETECTED_LXC"
+        export DETECTED_LXC
+    else
+        msg_info "No existing containers found"
+        export DETECTED_LXC=""
+    fi
 }
 
-CTID=$(get_next_ctid)
-HOSTNAME="${HOSTNAME}-${CTID}"
+# ==============================================================================
+# SECTION 4: LOCALE SELECTION
+# ==============================================================================
 
-msg_info "Starting LXC AutoScale Installation"
-echo "Container ID: $CTID"
-echo "Hostname: $HOSTNAME"
-echo ""
-
-# Check template
-msg_info "Checking template"
-if ! pveam list $STORAGE_TEMPLATE | grep -q "$TEMPLATE"; then
-    msg_info "Template not found, updating list"
-    pveam update
+select_locale() {
+    if [ "$VERB" == "yes" ]; then
+        msg_info "Selecting system locale"
+    fi
     
-    msg_info "Downloading template"
-    pveam download $STORAGE_TEMPLATE $TEMPLATE
-fi
-msg_ok "Template ready"
+    LOCALE_CHOICE=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "Locale Selection" \
+        --menu "Choose system locale:" 12 50 2 \
+        "1" "English (en_US.UTF-8)" \
+        "2" "Turkish (tr_TR.UTF-8)" \
+        3>&1 1>&2 2>&3)
+    
+    case $LOCALE_CHOICE in
+        1)
+            SELECTED_LOCALE="en_US.UTF-8"
+            LOCALE_NAME="English"
+            ;;
+        2)
+            SELECTED_LOCALE="tr_TR.UTF-8"
+            LOCALE_NAME="Turkish"
+            ;;
+        *)
+            SELECTED_LOCALE="en_US.UTF-8"
+            LOCALE_NAME="English"
+            ;;
+    esac
+    
+    export SELECTED_LOCALE
+    export LOCALE_NAME
+    
+    if [ "$VERB" == "yes" ]; then
+        msg_ok "Selected locale: $LOCALE_NAME ($SELECTED_LOCALE)"
+    fi
+}
 
-# Get available storages
-msg_info "Available storages for container:"
-mapfile -t STORAGES < <(pvesm status | grep -v '^Name' | grep -E 'active|available' | awk '{print $1}' | grep -v "^local$")
+# ==============================================================================
+# SECTION 5: CONTAINER INSTALLATION SCRIPT
+# ==============================================================================
 
-if [ ${#STORAGES[@]} -eq 0 ]; then
-    msg_error "No suitable storage found"
-    exit 1
-fi
+default_settings() {
+    msg_info "Using Default Settings"
+    echo "Using Default Settings" >>"${BUILD_LOG}"
+    detect_lxc_containers
+    select_locale
+}
 
-# Display storage menu
-echo ""
-for i in "${!STORAGES[@]}"; do
-    echo "  $((i+1)). ${STORAGES[$i]}"
-done
-echo ""
-
-# Ask user to select
-while true; do
-    read -p "Select storage (1-${#STORAGES[@]}): " STORAGE_CHOICE
-    if [[ "$STORAGE_CHOICE" =~ ^[0-9]+$ ]] && [ "$STORAGE_CHOICE" -ge 1 ] && [ "$STORAGE_CHOICE" -le ${#STORAGES[@]} ]; then
-        STORAGE_ROOT="${STORAGES[$((STORAGE_CHOICE-1))]}"
-        break
+# This function will be executed inside the container
+install_lxc_autoscale() {
+    # Update system
+    msg_info "Updating container system"
+    $STD apt-get update
+    $STD apt-get -y upgrade
+    msg_ok "System updated"
+    
+    # Configure locale
+    msg_info "Configuring locale: $LOCALE_NAME"
+    $STD apt-get install -y locales
+    
+    if [[ "$SELECTED_LOCALE" == "tr_TR.UTF-8" ]]; then
+        echo "tr_TR.UTF-8 UTF-8" >> /etc/locale.gen
+    fi
+    echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
+    
+    $STD locale-gen
+    $STD update-locale LANG=$SELECTED_LOCALE
+    export LANG=$SELECTED_LOCALE
+    export LC_ALL=$SELECTED_LOCALE
+    msg_ok "Locale configured: $LOCALE_NAME"
+    
+    # Install dependencies
+    msg_info "Installing dependencies"
+    $STD apt-get install -y \
+        curl \
+        git \
+        python3 \
+        python3-pip \
+        python3-yaml \
+        python3-requests \
+        python3-paramiko \
+        python3-cryptography \
+        openssh-client \
+        nginx \
+        ca-certificates \
+        gnupg \
+        build-essential \
+        python3-dev
+    msg_ok "Dependencies installed"
+    
+    # Create SSH key
+    msg_info "Creating SSH key"
+    ssh-keygen -t rsa -b 4096 -f /root/.ssh/id_rsa -N "" -q
+    SSH_PUBLIC_KEY=$(cat /root/.ssh/id_rsa.pub)
+    msg_ok "SSH key created"
+    
+    # Clone LXC AutoScale repository
+    msg_info "Cloning LXC AutoScale repository"
+    cd /opt
+    $STD git clone https://github.com/fabriziosalmi/proxmox-lxc-autoscale.git lxc-autoscale
+    msg_ok "Repository cloned"
+    
+    # Create directories
+    msg_info "Creating directories"
+    mkdir -p /etc/lxc_autoscale
+    mkdir -p /var/lib/lxc_autoscale/backups
+    mkdir -p /var/log
+    msg_ok "Directories created"
+    
+    # Setup application
+    msg_info "Setting up LXC AutoScale"
+    cp /opt/lxc-autoscale/lxc_autoscale/lxc_autoscale.py /usr/local/bin/
+    chmod +x /usr/local/bin/lxc_autoscale.py
+    msg_ok "Application setup complete"
+    
+    # Get Proxmox host IP
+    HOST_IP=$(ip route get 1 | awk '{print $7}' | head -1)
+    
+    # Convert detected LXC list to YAML array format
+    if [[ -n "$DETECTED_LXC" ]]; then
+        LXC_ARRAY="[$DETECTED_LXC]"
     else
-        msg_error "Invalid selection. Please choose 1-${#STORAGES[@]}"
+        LXC_ARRAY="[]"
     fi
-done
-
-msg_ok "Selected storage: $STORAGE_ROOT"
-
-# Create container
-msg_info "Creating container"
-pct create $CTID ${STORAGE_TEMPLATE}:vztmpl/${TEMPLATE} \
-    --hostname $HOSTNAME \
-    --cores $CORES \
-    --memory $MEMORY \
-    --swap $SWAP \
-    --rootfs ${STORAGE_ROOT}:${DISK} \
-    --net0 name=eth0,bridge=vmbr0,ip=dhcp \
-    --features nesting=1 \
-    --unprivileged 1 \
-    --onboot 1 \
-    --password "$PASSWORD" \
-    --start 1
-
-msg_ok "Container created (ID: $CTID)"
-
-# Wait for container to start
-msg_info "Waiting for container to start"
-sleep 10
-
-# Get container IP
-msg_info "Getting container IP"
-for i in {1..30}; do
-    CONTAINER_IP=$(pct exec $CTID -- hostname -I 2>/dev/null | awk '{print $1}' || echo "")
-    if [[ -n "$CONTAINER_IP" ]]; then
-        msg_ok "Container IP: $CONTAINER_IP"
-        break
-    fi
-    sleep 2
-done
-
-if [[ -z "$CONTAINER_IP" ]]; then
-    msg_error "Could not get container IP"
-    exit 1
-fi
-
-# Update container
-msg_info "Updating container system"
-pct exec $CTID -- bash -c "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y"
-msg_ok "System updated"
-
-# Install dependencies
-msg_info "Installing dependencies"
-pct exec $CTID -- bash -c "DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    curl \
-    git \
-    python3 \
-    python3-pip \
-    python3-yaml \
-    python3-requests \
-    python3-paramiko \
-    python3-cryptography \
-    openssh-client \
-    nginx \
-    ca-certificates"
-msg_ok "Dependencies installed"
-
-# Create SSH key
-msg_info "Creating SSH key"
-pct exec $CTID -- bash -c "mkdir -p /root/.ssh && ssh-keygen -t rsa -b 4096 -f /root/.ssh/id_rsa -N '' -q"
-msg_ok "SSH key created"
-
-# Clone repository
-msg_info "Cloning LXC AutoScale repository"
-pct exec $CTID -- bash -c "cd /opt && git clone https://github.com/fabriziosalmi/proxmox-lxc-autoscale.git lxc-autoscale"
-msg_ok "Repository cloned"
-
-# Create directories
-msg_info "Creating directories"
-pct exec $CTID -- bash -c "mkdir -p /etc/lxc_autoscale /var/lib/lxc_autoscale/backups /var/log"
-msg_ok "Directories created"
-
-# Setup application
-msg_info "Setting up LXC AutoScale"
-pct exec $CTID -- bash -c "cp /opt/lxc-autoscale/lxc_autoscale/lxc_autoscale.py /usr/local/bin/lxc_autoscale.py && chmod +x /usr/local/bin/lxc_autoscale.py"
-msg_ok "Application setup complete"
-
-# Get Proxmox host IP
-HOST_IP=$(hostname -I | awk '{print $1}')
-
-# Detect all LXC containers on host
-msg_info "Detecting LXC containers on Proxmox host"
-DETECTED_LXC=$(pct list | grep -v VMID | awk '{print $1}' | grep -v "^$CTID$" | tr '\n' ',' | sed 's/,$//')
-
-if [[ -n "$DETECTED_LXC" ]]; then
-    msg_ok "Found containers: $DETECTED_LXC"
-    LXC_ARRAY="[$DETECTED_LXC]"
-else
-    msg_info "No existing containers found"
-    LXC_ARRAY="[]"
-fi
-
-# Create config
-msg_info "Creating configuration file"
-pct exec $CTID -- bash -c "cat > /etc/lxc_autoscale/lxc_autoscale.yaml << 'EOF'
+    
+    # Create configuration file with detected containers
+    msg_info "Creating configuration file"
+    cat > /etc/lxc_autoscale/lxc_autoscale.yaml << EOF
 DEFAULTS:
   log_file: /var/log/lxc_autoscale.log
   lock_file: /var/lock/lxc_autoscale.lock
@@ -222,12 +237,12 @@ TIER_DEFAULT:
   min_memory: 512
   max_memory: 4096
   lxc_containers: ${LXC_ARRAY}
-EOF"
-msg_ok "Configuration created with detected containers"
-
-# Create systemd service
-msg_info "Creating systemd service"
-pct exec $CTID -- bash -c "cat > /etc/systemd/system/lxc_autoscale.service << 'EOF'
+EOF
+    msg_ok "Configuration created with detected containers"
+    
+    # Create systemd service
+    msg_info "Creating systemd service"
+    cat > /etc/systemd/system/lxc_autoscale.service << 'EOF'
 [Unit]
 Description=LXC AutoScale Service
 After=network.target
@@ -235,95 +250,105 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/usr/local/bin
+WorkingDirectory=/opt/lxc-autoscale
 ExecStart=/usr/bin/python3 /usr/local/bin/lxc_autoscale.py
-Restart=always
+Restart=on-failure
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-EOF"
-
-pct exec $CTID -- bash -c "systemctl daemon-reload && systemctl enable lxc_autoscale.service && systemctl start lxc_autoscale.service"
-msg_ok "Service created and started"
-
-# Setup web interface
-msg_info "Setting up web interface"
-pct exec $CTID -- bash -c "mkdir -p /var/www/lxc-autoscale"
-
-# Copy original UI from repository if exists
-if pct exec $CTID -- bash -c "[ -d /opt/lxc-autoscale/lxc_autoscale/ui ]"; then
-    msg_info "Copying original UI files"
-    pct exec $CTID -- bash -c "cp -r /opt/lxc-autoscale/lxc_autoscale/ui/* /var/www/lxc-autoscale/ 2>/dev/null || true"
-    msg_ok "Original UI installed"
-else
-    # Fallback: Create simple dashboard
-    msg_info "Creating fallback dashboard"
-    pct exec $CTID -- bash -c "cat > /var/www/lxc-autoscale/index.html << 'HTMLEOF'
+EOF
+    
+    systemctl daemon-reload
+    systemctl enable -q --now lxc_autoscale.service
+    msg_ok "Service created and started"
+    
+    # Setup web interface
+    msg_info "Setting up web interface"
+    mkdir -p /var/www/lxc-autoscale
+    
+    # Check if original UI exists in repo
+    if [ -d "/opt/lxc-autoscale/lxc_autoscale/ui" ]; then
+        msg_info "Installing original UI from repository"
+        cp -r /opt/lxc-autoscale/lxc_autoscale/ui/* /var/www/lxc-autoscale/
+        msg_ok "Original UI installed"
+    else
+        # Fallback UI
+        msg_info "Creating fallback dashboard"
+        cat > /var/www/lxc-autoscale/index.html << 'HTMLEOF'
 <!DOCTYPE html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-    <meta charset=\"UTF-8\">
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LXC AutoScale Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        header { background: #16213e; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
-        h1 { color: #00d9ff; }
-        .card { background: #16213e; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
-        .card h2 { color: #00d9ff; margin-bottom: 15px; }
-        pre { background: #0f0f23; padding: 15px; border-radius: 5px; overflow-x: auto; max-height: 400px; }
-        .btn { background: #00d9ff; color: #000; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; margin: 5px; }
-        .btn:hover { background: #00b8d4; }
-        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; }
-        .info-item { background: #0f0f23; padding: 15px; border-radius: 5px; }
-        .info-label { color: #888; font-size: 12px; margin-bottom: 5px; }
-        .info-value { color: #00d9ff; font-size: 18px; font-weight: bold; }
-        .status.running { background: #00ff88; color: #000; padding: 5px 15px; border-radius: 20px; display: inline-block; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background: #0f172a; color: #e2e8f0; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        header { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); padding: 2rem; border-radius: 1rem; margin-bottom: 2rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
+        h1 { color: #38bdf8; font-size: 2rem; margin-bottom: 0.5rem; }
+        .subtitle { color: #94a3b8; font-size: 1.1rem; }
+        .card { background: #1e293b; padding: 1.5rem; border-radius: 1rem; margin-bottom: 1.5rem; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2); }
+        .card h2 { color: #38bdf8; margin-bottom: 1rem; font-size: 1.5rem; }
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+        .info-item { background: #0f172a; padding: 1.5rem; border-radius: 0.75rem; border: 1px solid #1e293b; }
+        .info-label { color: #64748b; font-size: 0.875rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .info-value { color: #38bdf8; font-size: 1.5rem; font-weight: 600; }
+        .status { display: inline-block; padding: 0.5rem 1rem; border-radius: 2rem; font-size: 0.875rem; font-weight: 600; }
+        .status.running { background: #059669; color: white; }
+        pre { background: #0f172a; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; max-height: 500px; overflow-y: auto; border: 1px solid #1e293b; font-size: 0.875rem; line-height: 1.5; }
+        .btn { background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%); color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 0.5rem; cursor: pointer; text-decoration: none; display: inline-block; margin: 0.25rem; font-weight: 600; transition: all 0.2s; }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4); }
+        code { background: #1e293b; padding: 0.25rem 0.5rem; border-radius: 0.25rem; color: #38bdf8; font-family: 'Courier New', monospace; }
     </style>
 </head>
 <body>
-    <div class=\"container\">
+    <div class="container">
         <header>
             <h1>🚀 LXC AutoScale Dashboard</h1>
-            <p>Proxmox Container Auto Scaling System</p>
+            <p class="subtitle">Proxmox Container Auto Scaling Management</p>
         </header>
 
-        <div class=\"card\">
-            <h2>System Status</h2>
-            <div class=\"info-grid\">
-                <div class=\"info-item\">
-                    <div class=\"info-label\">Service Status</div>
-                    <div class=\"info-value\"><span class=\"status running\">RUNNING</span></div>
+        <div class="card">
+            <h2>📊 System Status</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Service Status</div>
+                    <div class="info-value"><span class="status running">RUNNING</span></div>
                 </div>
-                <div class=\"info-item\">
-                    <div class=\"info-label\">Container IP</div>
-                    <div class=\"info-value\" id=\"container-ip\"></div>
+                <div class="info-item">
+                    <div class="info-label">Container IP</div>
+                    <div class="info-value" id="container-ip">Loading...</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Managed Containers</div>
+                    <div class="info-value" id="managed-containers">Loading...</div>
                 </div>
             </div>
         </div>
 
-        <div class=\"card\">
-            <h2>Quick Actions</h2>
-            <a href=\"/api/logs\" class=\"btn\" target=\"_blank\">📄 View Logs</a>
-            <a href=\"/api/metrics\" class=\"btn\" target=\"_blank\">📊 View Metrics</a>
-            <button class=\"btn\" onclick=\"location.reload()\">🔄 Refresh</button>
+        <div class="card">
+            <h2>🎯 Quick Actions</h2>
+            <a href="/api/logs" class="btn" target="_blank">📄 View Logs</a>
+            <a href="/api/metrics" class="btn" target="_blank">📊 View Metrics</a>
+            <button class="btn" onclick="location.reload()">🔄 Refresh</button>
         </div>
 
-        <div class=\"card\">
+        <div class="card">
             <h2>📝 Recent Logs (Last 100 lines)</h2>
-            <pre id=\"logs\">Loading logs...</pre>
+            <pre id="logs">Loading logs...</pre>
         </div>
 
-        <div class=\"card\">
+        <div class="card">
             <h2>⚙️ Configuration</h2>
-            <p>Config file: <code>/etc/lxc_autoscale/lxc_autoscale.yaml</code></p>
-            <p>Edit config: <code>nano /etc/lxc_autoscale/lxc_autoscale.yaml</code></p>
-            <p>Restart service: <code>systemctl restart lxc_autoscale</code></p>
+            <p style="margin-bottom: 1rem;">Manage your LXC AutoScale configuration:</p>
+            <p><strong>Config file:</strong> <code>/etc/lxc_autoscale/lxc_autoscale.yaml</code></p>
+            <p><strong>Edit config:</strong> <code>nano /etc/lxc_autoscale/lxc_autoscale.yaml</code></p>
+            <p><strong>Restart service:</strong> <code>systemctl restart lxc_autoscale</code></p>
+            <p><strong>View service logs:</strong> <code>journalctl -u lxc_autoscale -f</code></p>
         </div>
     </div>
 
@@ -332,21 +357,35 @@ else
             try {
                 const response = await fetch('/api/logs');
                 const logs = await response.text();
-                document.getElementById('logs').textContent = logs.split('\\n').slice(-100).join('\\n');
+                document.getElementById('logs').textContent = logs.split('\n').slice(-100).join('\n');
             } catch(e) {
                 document.getElementById('logs').textContent = 'Error loading logs: ' + e.message;
             }
+            
             document.getElementById('container-ip').textContent = window.location.hostname;
+            
+            try {
+                const response = await fetch('/api/metrics');
+                const metrics = await response.json();
+                if (metrics.containers) {
+                    document.getElementById('managed-containers').textContent = metrics.containers.length;
+                }
+            } catch(e) {
+                document.getElementById('managed-containers').textContent = 'N/A';
+            }
         }
+        
         loadStatus();
         setInterval(loadStatus, 30000);
     </script>
 </body>
 </html>
-HTMLEOF"
-fi
-
-pct exec $CTID -- bash -c "cat > /etc/nginx/sites-available/lxc-autoscale << 'EOF'
+HTMLEOF
+        msg_ok "Fallback UI created"
+    fi
+    
+    # Configure Nginx
+    cat > /etc/nginx/sites-available/lxc-autoscale << 'EOF'
 server {
     listen 8080;
     server_name _;
@@ -355,7 +394,7 @@ server {
     index index.html;
     
     location / {
-        try_files \$uri \$uri/ =404;
+        try_files $uri $uri/ =404;
     }
     
     location /api/logs {
@@ -370,44 +409,57 @@ server {
         add_header Content-Type 'application/json; charset=utf-8';
     }
 }
-EOF"
+EOF
+    
+    ln -sf /etc/nginx/sites-available/lxc-autoscale /etc/nginx/sites-enabled/
+    rm -f /etc/nginx/sites-enabled/default
+    systemctl restart nginx
+    msg_ok "Web interface configured"
+}
 
-pct exec $CTID -- bash -c "ln -sf /etc/nginx/sites-available/lxc-autoscale /etc/nginx/sites-enabled/ && rm -f /etc/nginx/sites-enabled/default && systemctl restart nginx"
-msg_ok "Web interface configured"
+# ==============================================================================
+# SECTION 6: UPDATE SCRIPT
+# ==============================================================================
 
-# Get SSH public key
-SSH_PUBLIC_KEY=$(pct exec $CTID -- cat /root/.ssh/id_rsa.pub)
+update_script() {
+    header_info
+    check_container_storage
+    check_container_resources
+    
+    if [[ ! -d /opt/lxc-autoscale ]]; then
+        msg_error "LXC AutoScale is not installed"
+        exit
+    fi
+    
+    msg_info "Updating LXC AutoScale"
+    cd /opt/lxc-autoscale
+    $STD git pull
+    
+    systemctl restart lxc_autoscale
+    msg_ok "Updated LXC AutoScale"
+    exit
+}
 
-# Summary
-echo ""
-echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║          LXC AutoScale Installation Complete!            ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "${BLUE}Container Information:${NC}"
-echo -e "  Container ID    : ${GREEN}$CTID${NC}"
-echo -e "  Hostname        : ${GREEN}$HOSTNAME${NC}"
-echo -e "  IP Address      : ${GREEN}$CONTAINER_IP${NC}"
-echo -e "  Root Password   : ${YELLOW}$PASSWORD${NC}"
-echo ""
-echo -e "${BLUE}Access:${NC}"
-echo -e "  Web Interface   : ${GREEN}http://${CONTAINER_IP}:8080${NC}"
-echo -e "  SSH             : ${GREEN}ssh root@${CONTAINER_IP}${NC}"
-echo -e "  Console         : ${GREEN}pct enter $CTID${NC}"
-echo ""
-echo -e "${BLUE}Configuration:${NC}"
-echo -e "  Config File     : ${GREEN}/etc/lxc_autoscale/lxc_autoscale.yaml${NC}"
-echo -e "  Log File        : ${GREEN}/var/log/lxc_autoscale.log${NC}"
-if [[ -n "$DETECTED_LXC" ]]; then
-echo -e "  Managed LXCs    : ${GREEN}$DETECTED_LXC${NC}"
-fi
-echo ""
-echo -e "${YELLOW}IMPORTANT - Add SSH Key to Proxmox Host:${NC}"
-echo -e "${GREEN}echo '$SSH_PUBLIC_KEY' >> /root/.ssh/authorized_keys${NC}"
-echo ""
-echo -e "${YELLOW}Next Steps:${NC}"
-echo "  1. Add SSH key to Proxmox host (command above)"
-echo "  2. Check detected containers: pct exec $CTID -- cat /etc/lxc_autoscale/lxc_autoscale.yaml"
-echo "  3. View logs: pct exec $CTID -- journalctl -u lxc_autoscale -f"
-echo "  4. Access web UI: http://${CONTAINER_IP}:8080"
-echo ""
+# ==============================================================================
+# SECTION 7: START INSTALLATION
+# ==============================================================================
+
+start
+build_container
+description
+
+# Container description
+cat <<EOF > /dev/null
+LXC AutoScale - Automated Container Resource Management
+
+Configuration:
+  - Config: /etc/lxc_autoscale/lxc_autoscale.yaml
+  - Logs: /var/log/lxc_autoscale.log
+  - Service: systemctl status lxc_autoscale
+  
+Web Interface:
+  - URL: http://CONTAINER_IP:8080
+  
+Documentation:
+  - https://github.com/fabriziosalmi/proxmox-lxc-autoscale
+EOF
