@@ -2,6 +2,7 @@
 
 # Copyright (c) 2025 droltr
 # License: MIT
+# based on https://github.com/fabriziosalmi/proxmox-lxc-autoscale?tab=readme-ov-file
 # https://github.com/droltr/lxc-auto-scaler
 
 # ==============================================================================
