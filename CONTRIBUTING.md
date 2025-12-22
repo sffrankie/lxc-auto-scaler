@@ -258,7 +258,6 @@ Add comments for:
 ## ❓ Questions?
 
 - Open a discussion on GitHub
-- Join Community Scripts Discord
 - Review existing documentation
 
 ---
