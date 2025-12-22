@@ -73,11 +73,9 @@ http://<CONTAINER_IP>:8080
 ```
 
 Features:
-- 📊 Real-time system status
 - 📝 Live log viewer (last 100 lines)
 - 📈 Container metrics
-- ⚙️ Configuration shortcuts
-- 🔄 Auto-refresh every 30 seconds
+
 
 ---
 
