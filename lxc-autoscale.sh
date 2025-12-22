@@ -174,6 +174,18 @@ msg_ok "Application setup complete"
 # Get Proxmox host IP
 HOST_IP=$(hostname -I | awk '{print $1}')
 
+# Detect all LXC containers on host
+msg_info "Detecting LXC containers on Proxmox host"
+DETECTED_LXC=$(pct list | grep -v VMID | awk '{print $1}' | grep -v "^$CTID$" | tr '\n' ',' | sed 's/,$//')
+
+if [[ -n "$DETECTED_LXC" ]]; then
+    msg_ok "Found containers: $DETECTED_LXC"
+    LXC_ARRAY="[$DETECTED_LXC]"
+else
+    msg_info "No existing containers found"
+    LXC_ARRAY="[]"
+fi
+
 # Create config
 msg_info "Creating configuration file"
 pct exec $CTID -- bash -c "cat > /etc/lxc_autoscale/lxc_autoscale.yaml << 'EOF'
@@ -209,9 +221,9 @@ TIER_DEFAULT:
   max_cores: 4
   min_memory: 512
   max_memory: 4096
-  lxc_containers: []
+  lxc_containers: ${LXC_ARRAY}
 EOF"
-msg_ok "Configuration created"
+msg_ok "Configuration created with detected containers"
 
 # Create systemd service
 msg_info "Creating systemd service"
@@ -241,8 +253,15 @@ msg_ok "Service created and started"
 msg_info "Setting up web interface"
 pct exec $CTID -- bash -c "mkdir -p /var/www/lxc-autoscale"
 
-# Create simple HTML interface
-pct exec $CTID -- bash -c "cat > /var/www/lxc-autoscale/index.html << 'HTMLEOF'
+# Copy original UI from repository if exists
+if pct exec $CTID -- bash -c "[ -d /opt/lxc-autoscale/lxc_autoscale/ui ]"; then
+    msg_info "Copying original UI files"
+    pct exec $CTID -- bash -c "cp -r /opt/lxc-autoscale/lxc_autoscale/ui/* /var/www/lxc-autoscale/ 2>/dev/null || true"
+    msg_ok "Original UI installed"
+else
+    # Fallback: Create simple dashboard
+    msg_info "Creating fallback dashboard"
+    pct exec $CTID -- bash -c "cat > /var/www/lxc-autoscale/index.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang=\"en\">
 <head>
@@ -257,16 +276,14 @@ pct exec $CTID -- bash -c "cat > /var/www/lxc-autoscale/index.html << 'HTMLEOF'
         h1 { color: #00d9ff; }
         .card { background: #16213e; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
         .card h2 { color: #00d9ff; margin-bottom: 15px; }
-        .status { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 14px; }
-        .status.running { background: #00ff88; color: #000; }
-        .status.stopped { background: #ff3838; color: #fff; }
-        pre { background: #0f0f23; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        pre { background: #0f0f23; padding: 15px; border-radius: 5px; overflow-x: auto; max-height: 400px; }
         .btn { background: #00d9ff; color: #000; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; margin: 5px; }
         .btn:hover { background: #00b8d4; }
         .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; }
         .info-item { background: #0f0f23; padding: 15px; border-radius: 5px; }
         .info-label { color: #888; font-size: 12px; margin-bottom: 5px; }
         .info-value { color: #00d9ff; font-size: 18px; font-weight: bold; }
+        .status.running { background: #00ff88; color: #000; padding: 5px 15px; border-radius: 20px; display: inline-block; }
     </style>
 </head>
 <body>
@@ -281,15 +298,11 @@ pct exec $CTID -- bash -c "cat > /var/www/lxc-autoscale/index.html << 'HTMLEOF'
             <div class=\"info-grid\">
                 <div class=\"info-item\">
                     <div class=\"info-label\">Service Status</div>
-                    <div class=\"info-value\" id=\"service-status\">Loading...</div>
+                    <div class=\"info-value\"><span class=\"status running\">RUNNING</span></div>
                 </div>
                 <div class=\"info-item\">
                     <div class=\"info-label\">Container IP</div>
-                    <div class=\"info-value\" id=\"container-ip\">Loading...</div>
-                </div>
-                <div class=\"info-item\">
-                    <div class=\"info-label\">Uptime</div>
-                    <div class=\"info-value\" id=\"uptime\">Loading...</div>
+                    <div class=\"info-value\" id=\"container-ip\"></div>
                 </div>
             </div>
         </div>
@@ -302,7 +315,7 @@ pct exec $CTID -- bash -c "cat > /var/www/lxc-autoscale/index.html << 'HTMLEOF'
         </div>
 
         <div class=\"card\">
-            <h2>📝 Recent Logs (Last 50 lines)</h2>
+            <h2>📝 Recent Logs (Last 100 lines)</h2>
             <pre id=\"logs\">Loading logs...</pre>
         </div>
 
@@ -319,25 +332,19 @@ pct exec $CTID -- bash -c "cat > /var/www/lxc-autoscale/index.html << 'HTMLEOF'
             try {
                 const response = await fetch('/api/logs');
                 const logs = await response.text();
-                document.getElementById('logs').textContent = logs.split('\\n').slice(-50).join('\\n');
+                document.getElementById('logs').textContent = logs.split('\\n').slice(-100).join('\\n');
             } catch(e) {
-                document.getElementById('logs').textContent = 'Error loading logs';
+                document.getElementById('logs').textContent = 'Error loading logs: ' + e.message;
             }
-
-            try {
-                const ip = window.location.hostname;
-                document.getElementById('container-ip').textContent = ip;
-            } catch(e) {}
-
-            document.getElementById('service-status').innerHTML = '<span class=\"status running\">RUNNING</span>';
+            document.getElementById('container-ip').textContent = window.location.hostname;
         }
-
         loadStatus();
         setInterval(loadStatus, 30000);
     </script>
 </body>
 </html>
 HTMLEOF"
+fi
 
 pct exec $CTID -- bash -c "cat > /etc/nginx/sites-available/lxc-autoscale << 'EOF'
 server {
@@ -391,14 +398,16 @@ echo ""
 echo -e "${BLUE}Configuration:${NC}"
 echo -e "  Config File     : ${GREEN}/etc/lxc_autoscale/lxc_autoscale.yaml${NC}"
 echo -e "  Log File        : ${GREEN}/var/log/lxc_autoscale.log${NC}"
+if [[ -n "$DETECTED_LXC" ]]; then
+echo -e "  Managed LXCs    : ${GREEN}$DETECTED_LXC${NC}"
+fi
 echo ""
 echo -e "${YELLOW}IMPORTANT - Add SSH Key to Proxmox Host:${NC}"
 echo -e "${GREEN}echo '$SSH_PUBLIC_KEY' >> /root/.ssh/authorized_keys${NC}"
 echo ""
 echo -e "${YELLOW}Next Steps:${NC}"
 echo "  1. Add SSH key to Proxmox host (command above)"
-echo "  2. Edit config: pct exec $CTID -- nano /etc/lxc_autoscale/lxc_autoscale.yaml"
-echo "  3. Add container IDs to TIER_DEFAULT -> lxc_containers: [100, 101, 102]"
-echo "  4. Restart service: pct exec $CTID -- systemctl restart lxc_autoscale"
-echo "  5. View logs: pct exec $CTID -- journalctl -u lxc_autoscale -f"
+echo "  2. Check detected containers: pct exec $CTID -- cat /etc/lxc_autoscale/lxc_autoscale.yaml"
+echo "  3. View logs: pct exec $CTID -- journalctl -u lxc_autoscale -f"
+echo "  4. Access web UI: http://${CONTAINER_IP}:8080"
 echo ""
