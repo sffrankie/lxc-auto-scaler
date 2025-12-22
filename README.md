@@ -114,6 +114,121 @@ systemctl restart lxc_autoscale
 
 ---
 
+## 🔧 Post-Installation
+
+### 1. Add SSH Key to Proxmox Host
+
+The installer displays an SSH key at the end. Run the provided command on your Proxmox host:
+
+```bash
+echo 'ssh-rsa AAAA...' >> /root/.ssh/authorized_keys
+```
+
+**Important:** Without this step, the AutoScale service cannot connect to Proxmox to scale containers.
+
+### 2. Configure Container List
+
+Edit the configuration file:
+
+```bash
+nano /etc/lxc_autoscale/lxc_autoscale.yaml
+```
+
+Add container IDs to monitor:
+
+```yaml
+TIER_DEFAULT:
+  lxc_containers: [101, 102, 103]  # Your container IDs here
+```
+
+**Note:** The installer cannot automatically detect containers because the SSH key is not yet added to the Proxmox host during installation.
+
+### 3. Restart Services
+
+```bash
+systemctl restart lxc_autoscale
+systemctl restart lxc_autoscale_ui
+```
+
+### 4. Verify Services
+
+```bash
+# Check AutoScale service
+systemctl status lxc_autoscale
+
+# Check Web UI service
+systemctl status lxc_autoscale_ui
+
+# Check if ports are listening
+ss -tlnp | grep -E '(5000|8080)'
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### Web UI Not Accessible
+
+**Symptom:** Cannot access http://CONTAINER_IP:8080
+
+**Check:**
+```bash
+# Is Flask UI running?
+systemctl status lxc_autoscale_ui
+
+# Is port 5000 listening?
+ss -tlnp | grep 5000
+
+# Is Nginx running?
+systemctl status nginx
+
+# Check Nginx error log
+tail -20 /var/log/nginx/error.log
+```
+
+**Common Issues:**
+- Flask UI service failed to start: Check `/var/log/flask_ui.log` if it exists
+- Port 5000 not listening: Service may be restarting, wait 10 seconds
+- 502 Bad Gateway: Flask UI starting up, refresh after a few seconds
+
+### AutoScale Service Not Working
+
+**Symptom:** Containers not being scaled
+
+**Check:**
+```bash
+# View service logs
+journalctl -u lxc_autoscale -n 50
+
+# Check configuration
+cat /etc/lxc_autoscale/lxc_autoscale.yaml
+
+# Test SSH connection to Proxmox host
+ssh root@PROXMOX_IP "pct list"
+```
+
+**Common Issues:**
+- SSH key not added to Proxmox host
+- No containers configured in YAML
+- Proxmox host IP incorrect in config
+
+### Container Login Has No Prompt
+
+**Symptom:** Can execute commands but no prompt visible
+
+**Temporary Fix:**
+```bash
+export PS1='\u@\h:\w\$ '
+```
+
+**Permanent Fix:**
+Add to `/root/.bashrc`:
+```bash
+echo 'export PS1="\u@\h:\w\$ "' >> /root/.bashrc
+```
+
+---
+
 ## 📖 Configuration
 
 Main configuration file: `/etc/lxc_autoscale/lxc_autoscale.yaml`
