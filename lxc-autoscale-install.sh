@@ -134,8 +134,14 @@ else
     LXC_ARRAY="[]"
 fi
 
+# IMPORTANT: Using 'DEFAULT' (singular) not 'DEFAULTS' (plural)
+# Reason: lxc_utils.py line 69 expects config.get('DEFAULT', {})
+# This is a bug in the upstream project where example config uses 'DEFAULTS'
+# but the Python code looks for 'DEFAULT'
+# Issue reported to: https://github.com/fabriziosalmi/proxmox-lxc-autoscale
+
 cat > /etc/lxc_autoscale/lxc_autoscale.yaml << EOF
-DEFAULTS:
+DEFAULT:
   log_file: /var/log/lxc_autoscale.log
   lock_file: /var/lock/lxc_autoscale.lock
   backup_dir: /var/lib/lxc_autoscale/backups
@@ -173,7 +179,7 @@ EOF
 if [[ -n "$DETECTED_LXC" ]]; then
     msg_ok "Configuration created with detected containers: $DETECTED_LXC"
 else
-    msg_ok "Configuration created (no containers detected)"
+    msg_ok "Configuration created (containers must be added manually to TIER_DEFAULT)"
 fi
 
 # ==============================================================================
