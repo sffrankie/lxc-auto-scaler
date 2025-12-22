@@ -386,7 +386,11 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ---
 
 ## ⚠️ Disclaimer
-
+I’m new to this kind of work, so if I’ve violated any rules, I apologize in advance to those concerned.
+I think I may have made a mistake with the name; it should probably end with “installer.” If this will cause a serious issue, we can change it.
+I hope I have properly credited the original code owners in the correct place.
+I did not intend to make any changes to their code, but if I accidentally did (with AI – Claude), I would like to apologize for that as well.
+Please excuse my inexperience.
 This tool is provided as-is without any warranty. Always test in a non-production environment first. The author assumes no responsibility for any damage or issues that may arise from using this installer.
 
 ---
