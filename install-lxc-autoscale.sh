@@ -18,8 +18,8 @@ readonly CROSS="✗"
 readonly ARROW="➜"
 
 # Varsayılan değerler
-readonly TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
-readonly STORAGE="local-lvm"
+readonly TEMPLATE="debian-13-standard_13.0-1_amd64.tar.zst"
+readonly STORAGE="local"
 readonly DISK_SIZE="8"
 readonly CORES="2"
 readonly MEMORY="2048"
@@ -68,8 +68,8 @@ log info "LXC AutoScale Container Kurulumu Başlatılıyor..."
 
 # Sıradaki container ID'yi bul
 get_next_ctid() {
-    local next_id=200
-    while pct status $next_id &>/dev/null; do
+    local next_id=100
+    while pct status $next_id &>/dev/null || qm status $next_id &>/dev/null; do
         ((next_id++))
     done
     echo $next_id
@@ -85,10 +85,21 @@ log info "Hostname: $HOSTNAME"
 check_template() {
     log info "Template kontrol ediliyor..."
     
-    if ! pveam list local | grep -q "$TEMPLATE"; then
+    # Mevcut template'leri listele
+    if ! pveam list $STORAGE | grep -q "$TEMPLATE"; then
         log warning "Template bulunamadı, indiriliyor..."
-        pveam download local "$TEMPLATE"
-        log success "Template indirildi"
+        
+        # Önce template listesini güncelle
+        pveam update
+        
+        # Template'i indir
+        if pveam download $STORAGE $TEMPLATE; then
+            log success "Template indirildi"
+        else
+            log error "Template indirilemedi. Mevcut template'leri kontrol edin:"
+            pveam available | grep debian
+            exit 1
+        fi
     else
         log success "Template mevcut"
     fi
@@ -98,12 +109,12 @@ check_template() {
 create_container() {
     log info "Container oluşturuluyor..."
     
-    pct create $CTID local:vztmpl/$TEMPLATE \
+    pct create $CTID ${STORAGE}:vztmpl/${TEMPLATE} \
         --hostname $HOSTNAME \
         --cores $CORES \
         --memory $MEMORY \
         --swap $SWAP \
-        --rootfs ${STORAGE}:${DISK_SIZE} \
+        --rootfs ${STORAGE}-lvm:${DISK_SIZE} \
         --net0 name=eth0,bridge=vmbr0,ip=dhcp \
         --features nesting=1 \
         --unprivileged 1 \
