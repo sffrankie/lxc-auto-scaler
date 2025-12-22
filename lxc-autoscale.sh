@@ -34,7 +34,7 @@ source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxV
 source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/error_handler.func)
 
 # Load build functions (container creation, menus, whiptail)
-source <(curl -fsSL https://raw.githubusercontent.com/droltr/lxc-auto-scaler/build.func)
+source <(curl -fsSL https://raw.githubusercontent.com/droltr/lxc-auto-scaler/main/build.func)
 
 # ❌ NOTE: api.func is NOT loaded - no telemetry/statistics will be sent
 
