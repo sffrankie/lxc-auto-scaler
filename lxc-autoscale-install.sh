@@ -74,6 +74,11 @@ $STD apt-get install -y \
     python3-dev
 msg_ok "Dependencies installed"
 
+# Install Flask-SocketIO via pip (not available in Debian repos)
+msg_info "Installing Flask-SocketIO"
+$STD pip3 install flask-socketio --break-system-packages
+msg_ok "Flask-SocketIO installed"
+
 # ==============================================================================
 # SECTION 4: SSH KEY GENERATION
 # ==============================================================================
@@ -184,8 +189,8 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/lxc-autoscale
-ExecStart=/usr/bin/python3 /usr/local/bin/lxc_autoscale.py
+WorkingDirectory=/opt/lxc-autoscale/lxc_autoscale
+ExecStart=/usr/bin/python3 lxc_autoscale.py
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -216,6 +221,10 @@ if [ -d "/opt/lxc-autoscale/lxc_autoscale/ui" ] && [ -f "/opt/lxc-autoscale/lxc_
     # Copy entire UI directory
     cp -r /opt/lxc-autoscale/lxc_autoscale/ui/* /var/www/lxc-autoscale/
     
+    # Fix Flask-SocketIO production mode issue
+    msg_info "Patching Flask UI for production mode"
+    sed -i 's/socketio.run(app, host/socketio.run(app, allow_unsafe_werkzeug=True, host/' /var/www/lxc-autoscale/lxc_autoscale_ui.py
+    
     # Set proper permissions
     chown -R www-data:www-data /var/www/lxc-autoscale
     chmod -R 755 /var/www/lxc-autoscale
@@ -231,11 +240,10 @@ Wants=lxc_autoscale.service
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
-WorkingDirectory=/var/www/lxc-autoscale
+User=root
+Group=root
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=/usr/bin/python3 /var/www/lxc-autoscale/lxc_autoscale_ui.py
+ExecStart=/bin/bash -c 'cd /var/www/lxc-autoscale && /usr/bin/python3 -u lxc_autoscale_ui.py'
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
