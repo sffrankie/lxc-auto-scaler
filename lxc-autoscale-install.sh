@@ -389,3 +389,42 @@ $STD apt-get autoremove -y
 $STD apt-get autoclean -y
 
 msg_ok "LXC AutoScale installation completed successfully!"
+
+# SECTION 12: FINAL INFORMATION DISPLAY
+# ==============================================================================
+
+msg_ok "LXC AutoScale installation completed successfully!"
+
+# Get container IP
+CONTAINER_IP=$(hostname -I | awk '{print $1}')
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  🎉 LXC AutoScale Installation Complete!"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "  📍 Container IP: ${CONTAINER_IP}"
+echo ""
+echo "  🌐 Web Interface:"
+echo "     http://${CONTAINER_IP}:8080"
+echo ""
+echo "  📁 Configuration:"
+echo "     /etc/lxc_autoscale/lxc_autoscale.yaml"
+echo ""
+echo "  🔧 Service Management:"
+echo "     systemctl status lxc_autoscale"
+echo "     systemctl restart lxc_autoscale"
+echo "     journalctl -u lxc_autoscale -f"
+echo ""
+echo "  📊 View Logs:"
+echo "     tail -f /var/log/lxc_autoscale.log"
+echo ""
+echo "  🔑 SSH to container:"
+echo "     ssh root@${CONTAINER_IP}"
+echo ""
+if [[ -n "$DETECTED_LXC" ]]; then
+echo "  📦 Detected Containers: ${DETECTED_LXC}"
+echo ""
+fi
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
