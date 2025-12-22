@@ -66,11 +66,32 @@ msg_ok "Template ready"
 
 # Get available storages
 msg_info "Available storages for container:"
-pvesm status | grep -E "^[a-z]" | awk '{print $1}' | grep -v "^local$"
+mapfile -t STORAGES < <(pvesm status | grep -v '^Name' | grep -E 'active|available' | awk '{print $1}' | grep -v "^local$")
 
-# Ask for storage
-read -p "Enter storage for container rootfs (default: local-lvm): " USER_STORAGE
-STORAGE_ROOT=${USER_STORAGE:-local-lvm}
+if [ ${#STORAGES[@]} -eq 0 ]; then
+    msg_error "No suitable storage found"
+    exit 1
+fi
+
+# Display storage menu
+echo ""
+for i in "${!STORAGES[@]}"; do
+    echo "  $((i+1)). ${STORAGES[$i]}"
+done
+echo ""
+
+# Ask user to select
+while true; do
+    read -p "Select storage (1-${#STORAGES[@]}): " STORAGE_CHOICE
+    if [[ "$STORAGE_CHOICE" =~ ^[0-9]+$ ]] && [ "$STORAGE_CHOICE" -ge 1 ] && [ "$STORAGE_CHOICE" -le ${#STORAGES[@]} ]; then
+        STORAGE_ROOT="${STORAGES[$((STORAGE_CHOICE-1))]}"
+        break
+    else
+        msg_error "Invalid selection. Please choose 1-${#STORAGES[@]}"
+    fi
+done
+
+msg_ok "Selected storage: $STORAGE_ROOT"
 
 # Create container
 msg_info "Creating container"
@@ -220,6 +241,104 @@ msg_ok "Service created and started"
 msg_info "Setting up web interface"
 pct exec $CTID -- bash -c "mkdir -p /var/www/lxc-autoscale"
 
+# Create simple HTML interface
+pct exec $CTID -- bash -c "cat > /var/www/lxc-autoscale/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <title>LXC AutoScale Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        header { background: #16213e; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+        h1 { color: #00d9ff; }
+        .card { background: #16213e; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+        .card h2 { color: #00d9ff; margin-bottom: 15px; }
+        .status { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 14px; }
+        .status.running { background: #00ff88; color: #000; }
+        .status.stopped { background: #ff3838; color: #fff; }
+        pre { background: #0f0f23; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        .btn { background: #00d9ff; color: #000; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; margin: 5px; }
+        .btn:hover { background: #00b8d4; }
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; }
+        .info-item { background: #0f0f23; padding: 15px; border-radius: 5px; }
+        .info-label { color: #888; font-size: 12px; margin-bottom: 5px; }
+        .info-value { color: #00d9ff; font-size: 18px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class=\"container\">
+        <header>
+            <h1>🚀 LXC AutoScale Dashboard</h1>
+            <p>Proxmox Container Auto Scaling System</p>
+        </header>
+
+        <div class=\"card\">
+            <h2>System Status</h2>
+            <div class=\"info-grid\">
+                <div class=\"info-item\">
+                    <div class=\"info-label\">Service Status</div>
+                    <div class=\"info-value\" id=\"service-status\">Loading...</div>
+                </div>
+                <div class=\"info-item\">
+                    <div class=\"info-label\">Container IP</div>
+                    <div class=\"info-value\" id=\"container-ip\">Loading...</div>
+                </div>
+                <div class=\"info-item\">
+                    <div class=\"info-label\">Uptime</div>
+                    <div class=\"info-value\" id=\"uptime\">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class=\"card\">
+            <h2>Quick Actions</h2>
+            <a href=\"/api/logs\" class=\"btn\" target=\"_blank\">📄 View Logs</a>
+            <a href=\"/api/metrics\" class=\"btn\" target=\"_blank\">📊 View Metrics</a>
+            <button class=\"btn\" onclick=\"location.reload()\">🔄 Refresh</button>
+        </div>
+
+        <div class=\"card\">
+            <h2>📝 Recent Logs (Last 50 lines)</h2>
+            <pre id=\"logs\">Loading logs...</pre>
+        </div>
+
+        <div class=\"card\">
+            <h2>⚙️ Configuration</h2>
+            <p>Config file: <code>/etc/lxc_autoscale/lxc_autoscale.yaml</code></p>
+            <p>Edit config: <code>nano /etc/lxc_autoscale/lxc_autoscale.yaml</code></p>
+            <p>Restart service: <code>systemctl restart lxc_autoscale</code></p>
+        </div>
+    </div>
+
+    <script>
+        async function loadStatus() {
+            try {
+                const response = await fetch('/api/logs');
+                const logs = await response.text();
+                document.getElementById('logs').textContent = logs.split('\\n').slice(-50).join('\\n');
+            } catch(e) {
+                document.getElementById('logs').textContent = 'Error loading logs';
+            }
+
+            try {
+                const ip = window.location.hostname;
+                document.getElementById('container-ip').textContent = ip;
+            } catch(e) {}
+
+            document.getElementById('service-status').innerHTML = '<span class=\"status running\">RUNNING</span>';
+        }
+
+        loadStatus();
+        setInterval(loadStatus, 30000);
+    </script>
+</body>
+</html>
+HTMLEOF"
+
 pct exec $CTID -- bash -c "cat > /etc/nginx/sites-available/lxc-autoscale << 'EOF'
 server {
     listen 8080;
@@ -235,11 +354,13 @@ server {
     location /api/logs {
         alias /var/log/lxc_autoscale.log;
         default_type text/plain;
+        add_header Content-Type 'text/plain; charset=utf-8';
     }
     
     location /api/metrics {
         alias /var/log/lxc_autoscale.json;
         default_type application/json;
+        add_header Content-Type 'application/json; charset=utf-8';
     }
 }
 EOF"
