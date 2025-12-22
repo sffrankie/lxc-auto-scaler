@@ -64,6 +64,8 @@ $STD apt-get install -y \
     python3-requests \
     python3-paramiko \
     python3-cryptography \
+    python3-flask \
+    python3-flask-cors \
     openssh-client \
     nginx \
     ca-certificates \
@@ -199,151 +201,98 @@ $STD systemctl start lxc_autoscale.service
 msg_ok "Service created and started"
 
 # ==============================================================================
-# SECTION 10: SETUP WEB INTERFACE
+# SECTION 10: SETUP ORIGINAL FLASK WEB INTERFACE
 # ==============================================================================
 
-msg_info "Setting up web interface"
-mkdir -p /var/www/lxc-autoscale
+msg_info "Setting up original Flask web interface"
 
 # Check if original UI exists in repo
-if [ -d "/opt/lxc-autoscale/lxc_autoscale/ui" ] && [ "$(ls -A /opt/lxc-autoscale/lxc_autoscale/ui)" ]; then
-    msg_info "Installing original UI from repository"
+if [ -d "/opt/lxc-autoscale/lxc_autoscale/ui" ] && [ -f "/opt/lxc-autoscale/lxc_autoscale/ui/lxc_autoscale_ui.py" ]; then
+    msg_info "Installing original Flask UI from repository"
+    
+    # Create UI directory
+    mkdir -p /var/www/lxc-autoscale
+    
+    # Copy entire UI directory
     cp -r /opt/lxc-autoscale/lxc_autoscale/ui/* /var/www/lxc-autoscale/
-    msg_ok "Original UI installed"
+    
+    # Set proper permissions
+    chown -R www-data:www-data /var/www/lxc-autoscale
+    chmod -R 755 /var/www/lxc-autoscale
+    find /var/www/lxc-autoscale -type f -exec chmod 644 {} \;
+    chmod +x /var/www/lxc-autoscale/lxc_autoscale_ui.py
+    
+    # Create systemd service for Flask UI
+    cat > /etc/systemd/system/lxc_autoscale_ui.service << 'EOFUISERVICE'
+[Unit]
+Description=LXC AutoScale Web UI (Flask)
+After=network.target lxc_autoscale.service
+Wants=lxc_autoscale.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/lxc-autoscale
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/usr/bin/python3 /var/www/lxc-autoscale/lxc_autoscale_ui.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOFUISERVICE
+    
+    # Enable and start Flask UI service
+    $STD systemctl daemon-reload
+    $STD systemctl enable lxc_autoscale_ui.service
+    $STD systemctl start lxc_autoscale_ui.service
+    
+    msg_ok "Original Flask UI installed and started"
 else
-    # Fallback UI
-    msg_info "Creating fallback dashboard"
-    cat > /var/www/lxc-autoscale/index.html << 'HTMLEOF'
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LXC AutoScale Dashboard</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background: #0f172a; color: #e2e8f0; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
-        header { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); padding: 2rem; border-radius: 1rem; margin-bottom: 2rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
-        h1 { color: #38bdf8; font-size: 2rem; margin-bottom: 0.5rem; }
-        .subtitle { color: #94a3b8; font-size: 1.1rem; }
-        .card { background: #1e293b; padding: 1.5rem; border-radius: 1rem; margin-bottom: 1.5rem; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2); }
-        .card h2 { color: #38bdf8; margin-bottom: 1rem; font-size: 1.5rem; }
-        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
-        .info-item { background: #0f172a; padding: 1.5rem; border-radius: 0.75rem; border: 1px solid #1e293b; }
-        .info-label { color: #64748b; font-size: 0.875rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
-        .info-value { color: #38bdf8; font-size: 1.5rem; font-weight: 600; }
-        .status { display: inline-block; padding: 0.5rem 1rem; border-radius: 2rem; font-size: 0.875rem; font-weight: 600; }
-        .status.running { background: #059669; color: white; }
-        pre { background: #0f172a; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; max-height: 500px; overflow-y: auto; border: 1px solid #1e293b; font-size: 0.875rem; line-height: 1.5; }
-        .btn { background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%); color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 0.5rem; cursor: pointer; text-decoration: none; display: inline-block; margin: 0.25rem; font-weight: 600; transition: all 0.2s; }
-        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4); }
-        code { background: #1e293b; padding: 0.25rem 0.5rem; border-radius: 0.25rem; color: #38bdf8; font-family: 'Courier New', monospace; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <header>
-            <h1>🚀 LXC AutoScale Dashboard</h1>
-            <p class="subtitle">Proxmox Container Auto Scaling Management</p>
-        </header>
-
-        <div class="card">
-            <h2>📊 System Status</h2>
-            <div class="info-grid">
-                <div class="info-item">
-                    <div class="info-label">Service Status</div>
-                    <div class="info-value"><span class="status running">RUNNING</span></div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Container IP</div>
-                    <div class="info-value" id="container-ip">Loading...</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Managed Containers</div>
-                    <div class="info-value" id="managed-containers">Loading...</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2>🎯 Quick Actions</h2>
-            <a href="/api/logs" class="btn" target="_blank">📄 View Logs</a>
-            <a href="/api/metrics" class="btn" target="_blank">📊 View Metrics</a>
-            <button class="btn" onclick="location.reload()">🔄 Refresh</button>
-        </div>
-
-        <div class="card">
-            <h2>📝 Recent Logs (Last 100 lines)</h2>
-            <pre id="logs">Loading logs...</pre>
-        </div>
-
-        <div class="card">
-            <h2>⚙️ Configuration</h2>
-            <p style="margin-bottom: 1rem;">Manage your LXC AutoScale configuration:</p>
-            <p><strong>Config file:</strong> <code>/etc/lxc_autoscale/lxc_autoscale.yaml</code></p>
-            <p><strong>Edit config:</strong> <code>nano /etc/lxc_autoscale/lxc_autoscale.yaml</code></p>
-            <p><strong>Restart service:</strong> <code>systemctl restart lxc_autoscale</code></p>
-            <p><strong>View service logs:</strong> <code>journalctl -u lxc_autoscale -f</code></p>
-        </div>
-    </div>
-
-    <script>
-        async function loadStatus() {
-            try {
-                const response = await fetch('/api/logs');
-                const logs = await response.text();
-                document.getElementById('logs').textContent = logs.split('\n').slice(-100).join('\n');
-            } catch(e) {
-                document.getElementById('logs').textContent = 'Error loading logs: ' + e.message;
-            }
-            
-            document.getElementById('container-ip').textContent = window.location.hostname;
-            
-            try {
-                const response = await fetch('/api/metrics');
-                const metrics = await response.json();
-                if (metrics.containers) {
-                    document.getElementById('managed-containers').textContent = metrics.containers.length;
-                }
-            } catch(e) {
-                document.getElementById('managed-containers').textContent = 'N/A';
-            }
-        }
-        
-        loadStatus();
-        setInterval(loadStatus, 30000);
-    </script>
-</body>
-</html>
-HTMLEOF
-    msg_ok "Fallback UI created"
+    msg_error "Original UI not found in repository"
+    exit 1
 fi
 
-# Set proper permissions for web files
-msg_info "Setting file permissions"
-chown -R www-data:www-data /var/www/lxc-autoscale
-chmod -R 755 /var/www/lxc-autoscale
-find /var/www/lxc-autoscale -type f -exec chmod 644 {} \;
-msg_ok "Permissions set"
-
 # ==============================================================================
-# SECTION 11: CONFIGURE NGINX
+# SECTION 11: CONFIGURE NGINX AS REVERSE PROXY
 # ==============================================================================
 
-msg_info "Configuring Nginx"
+msg_info "Configuring Nginx as reverse proxy for Flask UI"
 cat > /etc/nginx/sites-available/lxc-autoscale << 'EOFNGINX'
 server {
     listen 8080;
     server_name _;
     
-    root /var/www/lxc-autoscale;
-    index index.html;
-    
+    # Proxy to Flask UI running on port 5000
     location / {
-        try_files $uri $uri/ =404;
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket support (if needed)
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
     }
     
+    # Direct access to static files (optimization)
+    location /static/ {
+        alias /var/www/lxc-autoscale/static/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+    
+    # API endpoints for logs and metrics
     location /api/logs {
         alias /var/log/lxc_autoscale.log;
         default_type text/plain;
@@ -355,13 +304,17 @@ server {
         default_type application/json;
         add_header Content-Type 'application/json; charset=utf-8';
     }
+    
+    # Logging
+    access_log /var/log/nginx/lxc_autoscale_access.log;
+    error_log /var/log/nginx/lxc_autoscale_error.log;
 }
 EOFNGINX
 
 ln -sf /etc/nginx/sites-available/lxc-autoscale /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 $STD systemctl restart nginx
-msg_ok "Nginx configured"
+msg_ok "Nginx configured as reverse proxy"
 
 # ==============================================================================
 # SECTION 12: DISPLAY SSH KEY
@@ -397,10 +350,9 @@ $STD apt-get autoclean -y
 
 msg_ok "LXC AutoScale installation completed successfully!"
 
-# SECTION 12: FINAL INFORMATION DISPLAY
 # ==============================================================================
-
-msg_ok "LXC AutoScale installation completed successfully!"
+# SECTION 13: FINAL INFORMATION DISPLAY
+# ==============================================================================
 
 # Get container IP
 CONTAINER_IP=$(hostname -I | awk '{print $1}')
@@ -412,16 +364,21 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "  📍 Container IP: ${CONTAINER_IP}"
 echo ""
-echo "  🌐 Web Interface:"
+echo "  🌐 Web Interface (Flask UI):"
 echo "     http://${CONTAINER_IP}:8080"
 echo ""
 echo "  📁 Configuration:"
 echo "     /etc/lxc_autoscale/lxc_autoscale.yaml"
 echo ""
-echo "  🔧 Service Management:"
+echo "  🔧 AutoScale Service:"
 echo "     systemctl status lxc_autoscale"
 echo "     systemctl restart lxc_autoscale"
 echo "     journalctl -u lxc_autoscale -f"
+echo ""
+echo "  🌐 Web UI Service:"
+echo "     systemctl status lxc_autoscale_ui"
+echo "     systemctl restart lxc_autoscale_ui"
+echo "     journalctl -u lxc_autoscale_ui -f"
 echo ""
 echo "  📊 View Logs:"
 echo "     tail -f /var/log/lxc_autoscale.log"
@@ -435,3 +392,37 @@ echo ""
 fi
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
+
+# ==============================================================================
+# SECTION 14: CREATE MOTD (LOGIN BANNER)
+# ==============================================================================
+
+msg_info "Creating login banner (MOTD)"
+
+CONTAINER_IP=$(hostname -I | awk '{print $1}')
+HOSTNAME=$(hostname)
+
+cat > /etc/motd << 'EOFMOTDINNER'
+LXC AutoScale - Container Resource Management
+
+    🌐   Provided by: github.com/droltr/lxc-auto-scaler
+    🖥️   Based on: github.com/fabriziosalmi/proxmox-lxc-autoscale
+    📦   Framework: community-scripts.github.io/ProxmoxVE
+EOFMOTDINNER
+
+# Add dynamic info
+cat >> /etc/motd << EOFDYNAMIC
+    🏠   Hostname: ${HOSTNAME}
+    💡   IP Address: ${CONTAINER_IP}
+    🌐   Web UI: http://${CONTAINER_IP}:8080
+    📁   Config: /etc/lxc_autoscale/lxc_autoscale.yaml
+EOFDYNAMIC
+
+msg_ok "Login banner created"
+
+# ==============================================================================
+# CLEANUP
+# ==============================================================================
+
+$STD apt-get autoremove -y
+$STD apt-get autoclean -y
