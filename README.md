@@ -1,93 +1,109 @@
-# LXC AutoScale - Automated Container Installation Script
+# LXC AutoScale - Automated Proxmox LXC Container Installer
 
-Based on https://github.com/fabriziosalmi/proxmox-lxc-autoscale?tab=readme-ov-file
+🚀 **One-command installer for [LXC AutoScale](https://github.com/fabriziosalmi/proxmox-lxc-autoscale)** with automatic container detection, locale selection, and professional UI setup.
 
-Based on https://github.com/community-scripts/ProxmoxVE/tree/main
+Built using the [Community-Scripts](https://github.com/community-scripts/ProxmoxVE) framework for seamless Proxmox VE integration.
 
-Professional installation script for LXC AutoScale on Proxmox VE, built using community-scripts framework.
+---
 
-## Features
+## 🎯 Features
 
-- ✅ Automatic LXC container creation using community-scripts framework
-- ✅ Interactive installation with colored output
-- ✅ Debian 13 template
-- ✅ Pre-configured resources (2 CPU, 2GB RAM, 8GB disk)
-- ✅ SSH key auto-generation and setup
-- ✅ Nginx web interface on port 8080
-- ✅ Systemd service with auto-restart
-- ✅ Update script included
-- ✅ MOTD integration
+- ✅ **One-Command Installation** - Single bash command to deploy everything
+- ✅ **Automatic LXC Detection** - Automatically finds and configures existing containers
+- ✅ **Multi-Language Support** - English and Turkish locale options
+- ✅ **Professional UI** - Modern dark-themed web interface on port 8080
+- ✅ **SSH Key Management** - Automatic SSH key generation and setup
+- ✅ **Community-Scripts Framework** - Whiptail menus, advanced/default modes
+- ✅ **No Telemetry** - Privacy-focused, no data collection
 
-## Requirements
+---
 
-- Proxmox VE 8.x
-- Root access
-- Internet connection
+## 📋 Requirements
 
-## Quick Installation
+- **Proxmox VE** 8.4.x or 9.0.x
+- **Root Access** to Proxmox host
+- **Internet Connection** for downloading packages
 
-### One-Line Install
+---
 
-```bash
-bash <(curl -s https://raw.githubusercontent.com/YOUR_REPO/lxc-autoscale.sh)
-```
+## 🚀 Quick Start
 
-### Manual Installation
+Run this single command on your **Proxmox host**:
 
 ```bash
-# Download script
-wget https://raw.githubusercontent.com/YOUR_REPO/lxc-autoscale.sh
-
-# Make executable
-chmod +x lxc-autoscale.sh
-
-# Run
-./lxc-autoscale.sh
+bash <(curl -s https://raw.githubusercontent.com/droltr/lxc-auto-scaler/main/lxc-autoscale.sh)
 ```
 
-## What Does This Script Do?
+The installer will:
+1. Show interactive menu (Default/Advanced mode)
+2. Detect existing LXC containers
+3. Ask for locale preference (EN/TR)
+4. Create and configure the container
+5. Install LXC AutoScale
+6. Setup web interface
+7. Display access information
 
-1. **Creates LXC Container**: Uses community-scripts framework to create a new container
-2. **System Update**: Updates the container OS and installs dependencies
-3. **Installs Python Dependencies**: Python3, pip, yaml, requests, paramiko, cryptography
-4. **SSH Setup**: Creates SSH keys for passwordless connection to Proxmox host
-5. **LXC AutoScale Installation**: Clones repository and sets up the application
-6. **Configuration**: Creates YAML config file (asks for Proxmox host IP)
-7. **Systemd Service**: Creates and starts the autoscale service
-8. **Web Interface**: Installs Nginx and sets up web UI on port 8080
-9. **Summary**: Displays all connection details and next steps
+---
 
-## Post-Installation
+## 📊 What Gets Installed
 
-After installation completes, you will see:
+### LXC Container Specifications
+- **OS:** Debian 13 (Trixie)
+- **Type:** Unprivileged
+- **CPU:** 2 cores (configurable)
+- **RAM:** 2048 MB (configurable)
+- **Disk:** 8 GB (configurable)
+- **Network:** DHCP (configurable)
 
-- Container IP address
-- Web interface URL (http://CONTAINER_IP:8080)
-- SSH public key (to add to Proxmox host)
-- Configuration file location
+### Software Components
+- **LXC AutoScale** - Resource auto-scaling daemon
+- **Python 3** - Runtime environment
+- **Nginx** - Web server (port 8080)
+- **SSH Server** - Remote access
+- **Original UI** - Web dashboard from upstream project
+
+---
+
+## 🎨 Web Interface
+
+After installation, access the dashboard at:
+
+```
+http://<CONTAINER_IP>:8080
+```
+
+Features:
+- 📊 Real-time system status
+- 📝 Live log viewer (last 100 lines)
+- 📈 Container metrics
+- ⚙️ Configuration shortcuts
+- 🔄 Auto-refresh every 30 seconds
+
+---
+
+## 🔧 Post-Installation
 
 ### 1. Add SSH Key to Proxmox Host
 
-On the **Proxmox host**, run:
+The installer displays an SSH key at the end. Run the provided command on your Proxmox host:
 
 ```bash
-echo 'YOUR_SSH_PUBLIC_KEY' >> /root/.ssh/authorized_keys
+echo 'ssh-rsa AAAA...' >> /root/.ssh/authorized_keys
 ```
 
-### 2. Configure Container IDs
+### 2. Configure Container List
 
 Edit the configuration file:
 
 ```bash
-pct enter CONTAINER_ID
 nano /etc/lxc_autoscale/lxc_autoscale.yaml
 ```
 
-Add your container IDs:
+Add container IDs to monitor:
 
 ```yaml
 TIER_DEFAULT:
-  lxc_containers: [100, 101, 102]
+  lxc_containers: [101, 102, 103]  # Your container IDs
 ```
 
 ### 3. Restart Service
@@ -96,185 +112,137 @@ TIER_DEFAULT:
 systemctl restart lxc_autoscale
 ```
 
-### 4. Monitor Logs
+---
+
+## 📖 Configuration
+
+Main configuration file: `/etc/lxc_autoscale/lxc_autoscale.yaml`
+
+Key settings:
+- **CPU/Memory Thresholds** - When to scale up/down
+- **Min/Max Resources** - Resource limits
+- **Check Interval** - Polling frequency (default: 5 minutes)
+- **Container List** - Which containers to manage
+- **Off-Peak Hours** - Resource optimization schedule
+
+For detailed configuration options, see the [LXC AutoScale Documentation](https://github.com/fabriziosalmi/proxmox-lxc-autoscale).
+
+---
+
+## 🛠️ Service Management
 
 ```bash
-journalctl -u lxc_autoscale -f
-```
-
-## Configuration
-
-### Main Configuration File
-
-Location: `/etc/lxc_autoscale/lxc_autoscale.yaml`
-
-```yaml
-DEFAULTS:
-  log_file: /var/log/lxc_autoscale.log
-  check_interval: 300
-  use_remote_proxmox: true
-  ssh_user: root
-  ssh_key: /root/.ssh/id_rsa
-  proxmox_host: YOUR_PROXMOX_IP
-
-TIER_DEFAULT:
-  cpu_upper_threshold: 80
-  cpu_lower_threshold: 20
-  memory_upper_threshold: 70
-  memory_lower_threshold: 20
-  min_cores: 1
-  max_cores: 4
-  min_memory: 512
-  max_memory: 4096
-  lxc_containers: [100, 101, 102]
-```
-
-## Service Management
-
-```bash
-# Check status
+# Check service status
 systemctl status lxc_autoscale
 
-# Start service
-systemctl start lxc_autoscale
-
-# Stop service
-systemctl stop lxc_autoscale
+# View live logs
+journalctl -u lxc_autoscale -f
 
 # Restart service
 systemctl restart lxc_autoscale
 
-# View logs
-journalctl -u lxc_autoscale -f
+# Stop service
+systemctl stop lxc_autoscale
+
+# View log file
+tail -f /var/log/lxc_autoscale.log
 ```
 
-## Web Interface
+---
 
-The web interface is accessible at:
-
-```
-http://CONTAINER_IP:8080
-```
-
-### API Endpoints
-
-- `/api/logs` - View log file
-- `/api/metrics` - JSON metrics
-
-## Updating
+## 🔄 Updating
 
 To update LXC AutoScale to the latest version:
 
 ```bash
-pct enter CONTAINER_ID
-bash /root/update.sh
-```
+# SSH into the container
+pct enter <CONTAINER_ID>
 
-Or manually:
-
-```bash
-systemctl stop lxc_autoscale
+# Update repository
 cd /opt/lxc-autoscale
 git pull
-cp /opt/lxc-autoscale/lxc_autoscale/lxc_autoscale.py /usr/local/bin/lxc_autoscale.py
-systemctl start lxc_autoscale
+
+# Restart service
+systemctl restart lxc_autoscale
 ```
 
-## Container Specifications
+---
 
-- **OS**: Debian 13
-- **CPU**: 2 cores
-- **RAM**: 2048 MB
-- **Swap**: 512 MB
-- **Disk**: 8 GB
-- **Network**: DHCP on vmbr0
-- **Features**: Nesting enabled
-- **Type**: Unprivileged container
+## 🗑️ Uninstallation
 
-## Customization
-
-You can customize the container resources by editing the script before running:
+To remove the container:
 
 ```bash
-var_disk="8"     # Disk size in GB
-var_cpu="2"      # CPU cores
-var_ram="2048"   # RAM in MB
+# Stop the container
+pct stop <CONTAINER_ID>
+
+# Delete the container
+pct destroy <CONTAINER_ID>
 ```
 
-## Troubleshooting
+---
 
-### Container won't start
+## 🙏 Credits
 
-```bash
-pct start CONTAINER_ID
-journalctl -xe
-```
+This installer is built upon the excellent work of:
 
-### Service not running
+### LXC AutoScale
+- **Author:** [Fabrizio Salmi](https://github.com/fabriziosalmi)
+- **Project:** [proxmox-lxc-autoscale](https://github.com/fabriziosalmi/proxmox-lxc-autoscale)
+- **Description:** Automatically scale LXC containers resources on Proxmox hosts
 
-```bash
-pct enter CONTAINER_ID
-systemctl status lxc_autoscale
-journalctl -u lxc_autoscale -n 100
-```
+### Community Scripts
+- **Project:** [ProxmoxVE Helper-Scripts](https://github.com/community-scripts/ProxmoxVE)
+- **Website:** [helper-scripts.com](https://helper-scripts.com)
+- **Description:** Community-driven Proxmox VE automation scripts
+- **Original Creator:** tteck (in memoriam)
 
-### SSH connection fails
+---
 
-```bash
-# Inside container
-ssh-keygen -t rsa -b 4096 -f /root/.ssh/id_rsa -N ''
-cat /root/.ssh/id_rsa.pub
+## 📝 License
 
-# On Proxmox host
-echo "PUBLIC_KEY" >> /root/.ssh/authorized_keys
-```
+MIT License - See [LICENSE](LICENSE) file for details
 
-### Web interface not accessible
+---
 
-```bash
-systemctl status nginx
-netstat -tlnp | grep 8080
-```
+## 🤝 Contributing
 
-## Removal
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-To remove the container completely:
+### Areas for Improvement
+- Additional locale support
+- Enhanced UI features
+- Configuration templates
+- Documentation improvements
 
-```bash
-pct stop CONTAINER_ID
-pct destroy CONTAINER_ID
-```
+---
 
-## File Locations
+## 🐛 Issues & Support
 
-```
-/opt/lxc-autoscale/                      # Application directory
-/etc/lxc_autoscale/lxc_autoscale.yaml   # Configuration file
-/usr/local/bin/lxc_autoscale.py         # Main script
-/var/log/lxc_autoscale.log              # Log file
-/var/log/lxc_autoscale.json             # JSON metrics
-/var/lib/lxc_autoscale/backups/         # Backup directory
-/var/www/lxc-autoscale/                 # Web interface
-/etc/systemd/system/lxc_autoscale.service # Systemd service
-/root/.ssh/id_rsa                        # SSH private key
-/root/.ssh/id_rsa.pub                    # SSH public key
-```
+- **LXC AutoScale Issues:** [Report here](https://github.com/fabriziosalmi/proxmox-lxc-autoscale/issues)
+- **Installer Issues:** [Report here](https://github.com/droltr/lxc-auto-scaler/issues)
+- **Community Scripts:** [Discord](https://discord.gg/3AnUqsXnmK)
 
-## License
+---
 
-MIT License
+## 📚 Documentation
 
-## Credits
+- [LXC AutoScale Documentation](https://github.com/fabriziosalmi/proxmox-lxc-autoscale/tree/main/docs)
+- [Community Scripts Wiki](https://github.com/community-scripts/ProxmoxVE/wiki)
+- [Proxmox VE Documentation](https://pve.proxmox.com/pve-docs/)
 
-- Built using [community-scripts framework](https://github.com/community-scripts/ProxmoxVE)
-- LXC AutoScale by [fabriziosalmi](https://github.com/fabriziosalmi/proxmox-lxc-autoscale)
+---
 
-## Support
+## ⚠️ Disclaimer
 
-For issues and support:
-- GitHub Issues
-- Community Forums
+This tool is provided as-is without any warranty. Always test in a non-production environment first. The author assumes no responsibility for any damage or issues that may arise from using this installer.
 
-## Contributing
+---
 
-Pull requests are welcome. For major changes, please open an issue first.
+## 🌟 Star History
+
+If this project helped you, please consider giving it a ⭐!
+
+---
+
+**Made with ❤️ for the Proxmox community**
