@@ -3758,7 +3758,8 @@ create_lxc_container() {
   msg_ok "Template search completed"
 
   set +u
-  mapfile -t ONLINE_TEMPLATES < <(pveam available -section system 2>/dev/null | grep -E '\.(tar\.zst|tar\.xz|tar\.gz)$' | awk '{print $2}' | grep -E "${SEARCH_PATTERN}.*${TEMPLATE_PATTERN}" | sort -t - -k 2 -V 2>/dev/null || true)
+  mapfile -t ONLINE_TEMPLATES < <(pveam available -section system 2>/dev/null | awk -v arch="$(dpkg --print-architecture)" '$2 ~ /\.(tar\.zst|tar\.xz|tar\.gz)$/ && $3 == arch {print $2}' | grep -E "${SEARCH_PATTERN}.*${TEMPLATE_PATTERN}" | sort -t - -k 2 -V 2>/dev/null || true)
+
   set -u
 
   ONLINE_TEMPLATE=""
