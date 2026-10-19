@@ -31,7 +31,7 @@
 source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/785d33be4076b0176dc6ad6ea255037aa09ac524/misc/core.func)
 
 # Load error handler (catch_errors, error management)
-source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/error_handler.func)
+source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/785d33be4076b0176dc6ad6ea255037aa09ac524/misc/error_handler.func)
 
 # Load build functions (container creation, menus, whiptail)
 source <(curl -fsSL https://raw.githubusercontent.com/sffrankie/lxc-auto-scaler/main/build.func)
