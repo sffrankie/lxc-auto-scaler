@@ -19,7 +19,7 @@
 #   - Automated configuration
 #
 # Usage:
-#   bash <(curl -s https://raw.githubusercontent.com/droltr/lxc-auto-scaler/main/lxc-autoscale.sh)
+#   bash <(curl -s https://raw.githubusercontent.com/sffrankie/lxc-auto-scaler/main/lxc-autoscale.sh)
 #
 # ==============================================================================
 
@@ -28,13 +28,13 @@
 # ==============================================================================
 
 # Load core functions (colors, messages, formatting)
-source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/core.func)
+source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/785d33be4076b0176dc6ad6ea255037aa09ac524/misc/core.func)
 
 # Load error handler (catch_errors, error management)
 source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/error_handler.func)
 
 # Load build functions (container creation, menus, whiptail)
-source <(curl -fsSL https://raw.githubusercontent.com/droltr/lxc-auto-scaler/main/build.func)
+source <(curl -fsSL https://raw.githubusercontent.com/sffrankie/lxc-auto-scaler/main/build.func)
 
 # ❌ NOTE: api.func is NOT loaded - no telemetry/statistics will be sent
 

@@ -80,15 +80,15 @@ variables() {
   fi
 }
 
-source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/api.func)
+source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/785d33be4076b0176dc6ad6ea255037aa09ac524/misc/api.func)
 
 if command -v curl >/dev/null 2>&1; then
-  source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/core.func)
+  source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/785d33be4076b0176dc6ad6ea255037aa09ac524/misc/core.func)
   source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/error_handler.func)
   load_functions
   catch_errors
 elif command -v wget >/dev/null 2>&1; then
-  source <(wget -qO- https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/core.func)
+  source <(wget -qO- https://raw.githubusercontent.com/community-scripts/ProxmoxVE/785d33be4076b0176dc6ad6ea255037aa09ac524/misc/core.func)
   source <(wget -qO- https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/error_handler.func)
   load_functions
   catch_errors
@@ -2630,7 +2630,7 @@ configure_ssh_settings() {
 # - Otherwise: shows update/setting menu and runs update_script with cleanup
 # ------------------------------------------------------------------------------
 start() {
-  source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/tools.func)
+  source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/785d33be4076b0176dc6ad6ea255037aa09ac524/misc/tools.func)
   if command -v pveversion >/dev/null 2>&1; then
     install_script || return 0
     return 0
@@ -2758,9 +2758,9 @@ build_container() {
   TEMP_DIR=$(mktemp -d)
   pushd "$TEMP_DIR" >/dev/null
   if [ "$var_os" == "alpine" ]; then
-    export FUNCTIONS_FILE_PATH="$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/alpine-install.func)"
+    export FUNCTIONS_FILE_PATH="$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/785d33be4076b0176dc6ad6ea255037aa09ac524/misc/alpine-install.func)"
   else
-    export FUNCTIONS_FILE_PATH="$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/install.func)"
+    export FUNCTIONS_FILE_PATH="$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/785d33be4076b0176dc6ad6ea255037aa09ac524/misc/install.func)"
   fi
 
   # Core exports for install.func
@@ -3217,7 +3217,7 @@ EOF'
   trap - ERR         # Remove ERR trap completely
 
   # lxc-attach -n "$CTID" -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/install/${var_install}.sh)"
-  lxc-attach -n "$CTID" -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/droltr/lxc-auto-scaler/main/${var_install}.sh)"
+  lxc-attach -n "$CTID" -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/sffrankie/lxc-auto-scaler/main/${var_install}.sh)"
   local lxc_exit=$?
 
   set -Eeuo pipefail       # Re-enable error handling
@@ -3301,7 +3301,7 @@ EOF'
         if [[ "${DEV_MODE_MOTD:-false}" == "true" ]]; then
           echo -e "${TAB}${HOLD}${DGN}Setting up MOTD and SSH for debugging...${CL}"
           if pct exec "$CTID" -- bash -c "
-            source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/install.func)
+            source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/785d33be4076b0176dc6ad6ea255037aa09ac524/misc/install.func)
             declare -f motd_ssh >/dev/null 2>&1 && motd_ssh || true
           " >/dev/null 2>&1; then
             local ct_ip=$(pct exec "$CTID" ip a s dev eth0 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1)
@@ -3749,7 +3749,7 @@ create_lxc_container() {
 
   mapfile -t LOCAL_TEMPLATES < <(
     pveam list "$TEMPLATE_STORAGE" 2>/dev/null |
-      awk -v search="${SEARCH_PATTERN}" -v pattern="${TEMPLATE_PATTERN}" '$1 ~ search && $1 ~ pattern {print $1}' |
+      awk -v search="${SEARCH_PATTERN}" -v pattern="${TEMPLATE_PATTERN}" '{n=$1; sub(/.*\//,"",n)} n ~ search && n ~ pattern {print n}' |
       sed 's|.*/||' | sort -t - -k 2 -V
   )
 
@@ -3758,7 +3758,7 @@ create_lxc_container() {
   msg_ok "Template search completed"
 
   set +u
-  mapfile -t ONLINE_TEMPLATES < <(pveam available -section system 2>/dev/null | awk '$2 ~ /\.(tar\.zst|tar\.xz|tar\.gz)$/ {print $2}' | grep -E "${SEARCH_PATTERN}.*${TEMPLATE_PATTERN}" | sort -t - -k 2 -V 2>/dev/null || true)
+  mapfile -t ONLINE_TEMPLATES < <(pveam available -section system 2>/dev/null | awk -v arch="$(dpkg --print-architecture)" '$2 ~ /\.(tar\.zst|tar\.xz|tar\.gz)$/ && $3 == arch {print $2}' | grep -E "${SEARCH_PATTERN}.*${TEMPLATE_PATTERN}" | sort -t - -k 2 -V 2>/dev/null || true)
   set -u
 
   ONLINE_TEMPLATE=""
@@ -3788,7 +3788,7 @@ create_lxc_container() {
     # Get all available versions for this OS type
     mapfile -t AVAILABLE_VERSIONS < <(
       pveam available -section system 2>/dev/null |
-        awk -v arch="$(dpkg --print-architecture)" '$2 ~ /\.(tar\.zst|tar\.xz|tar\.gz)$/ && $3 == arch {print $2}'
+        awk -v arch="$(dpkg --print-architecture)" '$2 ~ /\.(tar\.zst|tar\.xz|tar\.gz)$/ && $3 == arch {print $2}' |
         grep "^${PCT_OSTYPE}-" |
         sed -E "s/.*${PCT_OSTYPE}-([0-9]+(\.[0-9]+)?).*/\1/" |
         sort -u -V 2>/dev/null || true
@@ -3811,8 +3811,7 @@ create_lxc_container() {
 
         mapfile -t ONLINE_TEMPLATES < <(
           pveam available -section system 2>/dev/null |
-            grep -E '\.(tar\.zst|tar\.xz|tar\.gz)$' |
-            awk -F'\t' '{print $1}' |
+            awk -v arch="$(dpkg --print-architecture)" '$2 ~ /\.(tar\.zst|tar\.xz|tar\.gz)$/ && $3 == arch {print $2}' |
             grep -E "${SEARCH_PATTERN}.*${TEMPLATE_PATTERN}" |
             sort -t - -k 2 -V 2>/dev/null || true
         )
@@ -3852,6 +3851,7 @@ create_lxc_container() {
       # Get available versions
       mapfile -t AVAILABLE_VERSIONS < <(
         pveam available -section system 2>/dev/null |
+          awk -v arch="$(dpkg --print-architecture)" '$2 ~ /\.(tar\.zst|tar\.xz|tar\.gz)$/ && $3 == arch {print $2}' |
           grep "^${PCT_OSTYPE}-" |
           sed -E 's/.*'"${PCT_OSTYPE}"'-([0-9]+\.[0-9]+).*/\1/' |
           grep -E '^[0-9]+\.[0-9]+$' |
@@ -3878,7 +3878,7 @@ create_lxc_container() {
 
           mapfile -t LOCAL_TEMPLATES < <(
             pveam list "$TEMPLATE_STORAGE" 2>/dev/null |
-              awk -v search="${SEARCH_PATTERN}" -v pattern="${TEMPLATE_PATTERN}" '$1 ~ search && $1 ~ pattern {print $1}' |
+              awk -v search="${SEARCH_PATTERN}" -v pattern="${TEMPLATE_PATTERN}" '{n=$1; sub(/.*\//,"",n)} n ~ search && n ~ pattern {print n}' |
               sed 's|.*/||' | sort -t - -k 2 -V
           )
           mapfile -t ONLINE_TEMPLATES < <(
