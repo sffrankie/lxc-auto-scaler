@@ -31,7 +31,7 @@ Built using the [Community-Scripts](https://github.com/community-scripts/Proxmox
 Run this single command on your **Proxmox host**:
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/droltr/lxc-auto-scaler/main/lxc-autoscale.sh)
+bash <(curl -s https://raw.githubusercontent.com/sffrankie/lxc-auto-scaler/main/lxc-autoscale.sh)
 ```
 
 The installer will:
